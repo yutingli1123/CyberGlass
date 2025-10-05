@@ -1,0 +1,4 @@
+# Python dependencies for CyberGlass photo receiver
+pyserial>=3.5
+opencv-python>=4.5.0  # For video streaming
+numpy>=1.19.0  # Required by opencv-python

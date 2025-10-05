@@ -3,3 +3,30 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Photos directory
+photos/
+*.jpg
+*.jpeg
+*.png
+
+# Serial logs
+serial_log.txt
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# macOS
+.DS_Store
