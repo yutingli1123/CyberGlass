@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Real-time MJPEG Video Stream Viewer
-Displays live video feed from XIAO ESP32S3 Sense camera via serial port
+Real-time Binary Video Stream Viewer
+Displays live video feed from XIAO ESP32S3 Sense camera via serial port using binary transfer
 """
 
 import sys
 import serial
-import base64
 import cv2
 import numpy as np
 import time
@@ -14,7 +13,7 @@ import threading
 from io import BytesIO
 
 class VideoStreamViewer:
-    def __init__(self, port, baudrate=115200, target_fps=10):
+    def __init__(self, port, baudrate=921600, target_fps=30):
         self.port = port
         self.baudrate = baudrate
         self.target_fps = target_fps
@@ -57,71 +56,88 @@ class VideoStreamViewer:
             last_frame_time = time.time()
             
             while self.is_running:
-                # Read frame data
+                # Read binary frame data
                 try:
-                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                except:
-                    continue
-                
-                if line == '---BEGIN_FRAME---':
-                    # Collect Base64 data
-                    base64_data = []
-                    while True:
-                        try:
-                            data_line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                            if data_line == '---END_FRAME---':
+                    # Look for frame marker (0xC0 0x1D 0xF1 0x8E - "COLD F18E")
+                    byte = self.ser.read(1)
+                    if not byte:
+                        continue
+
+                    if byte[0] == 0xC0:
+                        # Check for complete marker
+                        marker = self.ser.read(3)
+                        if len(marker) == 3 and marker == b'\x1D\xF1\x8E':
+                            # Read frame size (4 bytes, little-endian)
+                            size_bytes = self.ser.read(4)
+                            if len(size_bytes) != 4:
+                                continue
+
+                            frame_size = int.from_bytes(size_bytes, byteorder='little')
+
+                            # Check for end marker
+                            if frame_size == 0xFFFFFFFF:
+                                print("\nReceived end marker, stream stopped by device")
+                                self.stop_stream()
                                 break
-                            if data_line:
-                                base64_data.append(data_line)
-                        except:
+
+                            # Validate frame size
+                            if frame_size > 500000 or frame_size < 100:
+                                print(f"Invalid frame size: {frame_size}, skipping")
+                                continue
+
+                            # Read frame data
+                            img_data = self.ser.read(frame_size)
+                            if len(img_data) != frame_size:
+                                print(f"Incomplete frame: expected {frame_size}, got {len(img_data)}")
+                                continue
+
+                            # Decode and display frame
+                            try:
+                                # Decode JPEG
+                                nparr = np.frombuffer(img_data, np.uint8)
+                                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+                                if frame is not None:
+                                    self.current_frame = frame.copy()
+                                    self.frame_count += 1
+
+                                    # Calculate FPS
+                                    current_time = time.time()
+                                    elapsed = current_time - self.start_time
+                                    fps_display = self.frame_count / elapsed if elapsed > 0 else 0
+
+                                    # Add overlays
+                                    cv2.putText(frame, f'FPS: {fps_display:.1f}',
+                                               (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                                               1, (0, 255, 0), 2)
+                                    cv2.putText(frame, f'Frame: {self.frame_count}',
+                                               (10, 70), cv2.FONT_HERSHEY_SIMPLEX,
+                                               1, (0, 255, 0), 2)
+                                    cv2.putText(frame, f'Size: {len(img_data)/1024:.1f}KB',
+                                               (10, 110), cv2.FONT_HERSHEY_SIMPLEX,
+                                               1, (0, 255, 0), 2)
+
+                                    # Display frame
+                                    cv2.imshow('ESP32 Camera Stream', frame)
+
+                                    # Print progress
+                                    if self.frame_count % 30 == 0:
+                                        print(f"Frames received: {self.frame_count}, FPS: {fps_display:.1f}")
+
+                            except Exception as e:
+                                print(f"Error decoding frame: {e}")
+
+                    elif byte[0] == 0xFF:
+                        # Check if this is end marker (0xFF 0xFF 0xFF 0xFF)
+                        next_bytes = self.ser.read(3)
+                        if len(next_bytes) == 3 and next_bytes == b'\xFF\xFF\xFF':
+                            print("\nReceived end marker, stream stopped")
+                            self.stop_stream()
                             break
-                    
-                    # Decode and display frame
-                    try:
-                        base64_str = ''.join(base64_data)
-                        if len(base64_str) > 0:
-                            img_data = base64.b64decode(base64_str)
-                            
-                            # Decode JPEG
-                            nparr = np.frombuffer(img_data, np.uint8)
-                            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                            
-                            if frame is not None:
-                                self.current_frame = frame.copy()
-                                self.frame_count += 1
-                                
-                                # Calculate FPS
-                                current_time = time.time()
-                                elapsed = current_time - self.start_time
-                                fps_display = self.frame_count / elapsed if elapsed > 0 else 0
-                                
-                                # Add overlays
-                                cv2.putText(frame, f'FPS: {fps_display:.1f}', 
-                                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                                           1, (0, 255, 0), 2)
-                                cv2.putText(frame, f'Frame: {self.frame_count}', 
-                                           (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 
-                                           1, (0, 255, 0), 2)
-                                cv2.putText(frame, f'Size: {len(img_data)/1024:.1f}KB', 
-                                           (10, 110), cv2.FONT_HERSHEY_SIMPLEX, 
-                                           1, (0, 255, 0), 2)
-                                cv2.putText(frame, f'Target FPS: {self.target_fps}', 
-                                           (10, 150), cv2.FONT_HERSHEY_SIMPLEX, 
-                                           1, (0, 255, 0), 2)
-                                
-                                # Display frame
-                                cv2.imshow('ESP32 Camera Stream', frame)
-                                
-                                # Print progress
-                                if self.frame_count % 30 == 0:
-                                    print(f"Frames received: {self.frame_count}, FPS: {fps_display:.1f}")
-                                
-                    except Exception as e:
-                        print(f"Error decoding frame: {e}")
-                
-                elif line:
-                    # Print other messages from ESP32
-                    print(f"ESP32: {line}")
+
+                except Exception as e:
+                    print(f"Error reading frame: {e}")
+                    continue
                 
                 # Handle keyboard input (must be called regularly)
                 key = cv2.waitKey(1) & 0xFF
@@ -131,14 +147,6 @@ class VideoStreamViewer:
                     break
                 elif key == ord('s'):
                     self.save_frame()
-                elif key == ord('+') or key == ord('='):
-                    self.target_fps = min(self.target_fps + 1, 30)
-                    frame_interval = 1.0 / self.target_fps
-                    print(f"Target FPS increased to: {self.target_fps}")
-                elif key == ord('-') or key == ord('_'):
-                    self.target_fps = max(self.target_fps - 1, 1)
-                    frame_interval = 1.0 / self.target_fps
-                    print(f"Target FPS decreased to: {self.target_fps}")
             
             # Print statistics
             self.print_statistics()
