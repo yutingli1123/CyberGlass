@@ -1,19 +1,29 @@
 #include <Arduino.h>
+#include "camera_module.h"
 
 #define LED_PIN 21  // Built-in LED pin for XIAO ESP32S3
 
 void setup() {
   Serial.begin(115200);         // Initialize serial communication
-  pinMode(LED_PIN, OUTPUT);     // Set LED pin as output mode
+  
+  // Initialize camera module
+  Serial.println("\n========================================");
+  Serial.println("  XIAO ESP32S3 - CyberGlass System");
+  Serial.println("========================================");
+  
+  if (initCamera()) {
+    Serial.println("[" + getTimestamp() + "] Camera module: READY");
+    Serial.println("Type 'help' or 'h' for camera commands\n");
+  } else {
+    Serial.println("[" + getTimestamp() + "] WARNING: Camera initialization failed");
+    Serial.println("LED blink mode will continue...\n");
+  }
 }
 
 void loop() {
-  Serial.println("LED is OFF");
-  digitalWrite(LED_PIN, HIGH);  // Turn off LED
-  delay(1000);                  // Wait 1 second
+  // Process camera commands from serial port
+  processCameraCommand();
   
-  Serial.println("LED is ON");
-  digitalWrite(LED_PIN, LOW);   // Turn on LED
-
-  delay(1000);                  // Wait 1 second
+  // Small delay to prevent excessive CPU usage
+  delay(10);
 }
