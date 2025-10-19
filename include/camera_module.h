@@ -27,10 +27,10 @@ bool initCamera();
 bool capturePhoto();
 
 /**
- * @brief Capture a photo and send via serial as Base64 encoded data
+ * @brief Capture a photo and send via serial in binary format
  * @return true if capture successful, false otherwise
  */
-bool captureAndSendBase64();
+bool captureAndSendBinary();
 
 /**
  * @brief Change camera resolution
@@ -47,13 +47,7 @@ bool changeResolution(framesize_t frameSize);
 bool changeQuality(int quality);
 
 /**
- * @brief Start video streaming mode
- * Continuously captures and sends frames until stopped
- */
-void startVideoStream();
-
-/**
- * @brief Start video streaming mode with binary transfer (faster)
+ * @brief Start video streaming mode with binary transfer
  * Continuously captures and sends frames as raw binary data
  */
 void startBinaryVideoStream();
@@ -62,9 +56,12 @@ void startBinaryVideoStream();
  * @brief Process serial commands for camera control
  * Commands:
  *   - "capture" or "c": Take a photo and display info
- *   - "send" or "d": Take a photo and send via Base64
+ *   - "send" or "d": Take a photo and send in binary format
+ *   - "stream": Start video streaming (binary)
+ *   - "stop": Stop video streaming
  *   - "status" or "s": Show camera status
  *   - "resolution" or "r": Change camera resolution
+ *   - "quality" or "q": Change JPEG quality
  *   - "help" or "h": Show available commands
  */
 void processCameraCommand();
