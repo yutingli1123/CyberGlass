@@ -13,17 +13,25 @@ WebServerManager webServer(&server, &wifiAP);
 
 void setup() {
   Serial.begin(921600);         // Initialize serial communication at high speed
-  
-  // Initialize camera module
+  delay(1000);
+
+  // Initialize system
   Serial.println("\n========================================");
   Serial.println("  XIAO ESP32S3 - CyberGlass System");
   Serial.println("========================================");
 
-  // Initialize WiFi Access Point
+  // Initialize WiFi Access Point (generates unique SSID/password)
   if (wifiAP.initAP()) {
     Serial.println("[" + getTimestamp() + "] WiFi AP: READY");
   } else {
     Serial.println("[" + getTimestamp() + "] WARNING: WiFi AP initialization failed");
+  }
+
+  // Initialize BLE for provisioning
+  if (wifiAP.initBLE()) {
+    Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY");
+  } else {
+    Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
   }
 
   // Initialize camera module
@@ -39,9 +47,16 @@ void setup() {
   // Start web server
   server.begin();
   Serial.println("[" + getTimestamp() + "] Web server: READY");
-  Serial.println("\nConnect to WiFi SSID: " + wifiAP.getSSID());
-  Serial.println("Then open browser at: http://" + wifiAP.getAPIP().toString());
-  Serial.println("\nType 'help' or 'h' for serial camera commands\n");
+
+  Serial.println("\n========================================");
+  Serial.println("WiFi Credentials (also available via BLE):");
+  Serial.println("  SSID: " + wifiAP.getSSID());
+  Serial.println("  Password: " + wifiAP.getPassword());
+  Serial.println("  Device ID: " + wifiAP.getDeviceID());
+  Serial.println("\nBLE Device Name: CyberGlass-" + wifiAP.getDeviceID());
+  Serial.println("Use a BLE scanner app to read credentials wirelessly");
+  Serial.println("\nWeb Interface: http://" + wifiAP.getAPIP().toString());
+  Serial.println("Type 'help' or 'h' for serial camera commands");
   Serial.println("========================================\n");
 }
 

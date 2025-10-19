@@ -1,18 +1,18 @@
-# WiFi Access Point Setup Guide
+# WiFi Access Point & BLE Provisioning Guide
 
 ## Overview
 
-CyberGlass supports WiFi connectivity! The ESP32S3 operates as a WiFi Access Point (AP), allowing you to connect wirelessly and access the camera through any web browser - no cable needed!
+CyberGlass supports WiFi connectivity with secure BLE provisioning! Each device generates a unique SSID and random password, which can be retrieved wirelessly via Bluetooth Low Energy (BLE) - no cable or serial monitor needed!
 
 ## Features
 
+- **Unique WiFi Credentials**: Each device has its own SSID (CyberGlass-XXXX) and random password
+- **BLE Provisioning**: Get WiFi credentials wirelessly via Bluetooth
 - **WiFi Access Point Mode**: Device creates its own WiFi network
 - **Web Interface**: Modern browser-based control panel
 - **Live MJPEG Streaming**: Real-time video streaming (up to 10 FPS)
-- **Single Photo Capture**: Take snapshots on demand
-- **Remote Control**: Change resolution, quality, and view system status
-- **Dual Mode**: Serial communication remains available for debugging
-- **Multi-Client Support**: Up to 4 simultaneous connections
+- **Persistent Storage**: Credentials saved to flash (survives reboot)
+- **Multi-Client Support**: Up to 4 simultaneous WiFi connections
 
 ## Quick Start
 
@@ -26,27 +26,55 @@ pio run --target upload
 pio device monitor
 ```
 
-### 2. Connect to WiFi
+### 2. Get WiFi Credentials
 
-Once the device boots, you'll see output like:
+Each device generates **unique credentials** on first boot. There are two ways to get them:
 
+#### Option A: Via BLE (Recommended - No Cable Needed!)
+
+1. **Install a BLE Scanner App**:
+   - iOS: **nRF Connect** (App Store)
+   - Android: **nRF Connect** (Play Store)
+
+2. **Scan for Device**:
+   - Open app and tap **SCAN**
+   - Find device named `CyberGlass-XXXX` (where XXXX is your device ID)
+
+3. **Connect and Read**:
+   - Tap **CONNECT**
+   - Tap **Unknown Service** (UUID: 4faf...)
+   - Read two characteristics:
+     - First = **WiFi SSID**
+     - Second = **WiFi Password**
+
+4. **Note Down** the SSID and password
+
+#### Option B: Via Serial Monitor (Cable Required)
+
+```bash
+pio device monitor
+```
+
+Output will show:
 ```
 ========================================
-  XIAO ESP32S3 - CyberGlass System
+WiFi Credentials (also available via BLE):
+  SSID: CyberGlass-A1B2
+  Password: a3k7m2pqw9rs
+  Device ID: A1B2
+BLE Device Name: CyberGlass-A1B2
+Web Interface: http://192.168.4.1
 ========================================
-WiFi AP started successfully!
-SSID: CyberGlass-AP
-Password: cyberglass123
-IP Address: 192.168.4.1
 ```
 
-**Connection Steps:**
+### 3. Connect to WiFi
+
 1. On your phone/laptop, open WiFi settings
-2. Connect to network: `CyberGlass-AP`
-3. Enter password: `cyberglass123`
+2. Connect to network: `CyberGlass-XXXX` (your device's SSID)
+3. Enter the password you retrieved via BLE or serial
 4. Open browser and navigate to: `http://192.168.4.1`
 
-### 3. Use the Web Interface
+### 4. Use the Web Interface
 
 The web interface provides:
 
@@ -55,40 +83,116 @@ The web interface provides:
 - **Stop Stream**: Stop video streaming and free resources
 - **Resolution Control**: QQVGA (160x120) to UXGA (1600x1200)
 - **Quality Control**: JPEG compression (5-30, lower = better quality)
-- **System Status**: Real-time heap, PSRAM, and client count monitoring
+- **Credentials Display**: View your WiFi SSID, password, and device ID
+
+## BLE Provisioning Details
+
+### How It Works
+
+1. **Device ID Generation**:
+   - Derived from ESP32S3 MAC address
+   - Last 4 hex digits (e.g., `A1B2`)
+   - Unique to each device
+
+2. **Credential Generation** (First Boot):
+   - SSID: `CyberGlass-{DeviceID}`
+   - Password: 12 random characters (`abcdefghjkmnpqrstuvwxyz23456789`)
+   - Example: `a3k7m2pqw9rs`
+
+3. **Persistent Storage**:
+   - Saved to NVS (Non-Volatile Storage)
+   - Survives reboots and power loss
+   - Same credentials every time
+
+4. **BLE Service**:
+   - Service UUID: `4fafc201-1fb5-459e-8fcc-c5c9c331914b`
+   - SSID Characteristic: `beb5483e-36e1-4688-b7f5-ea07361b26a8`
+   - Password Characteristic: `1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e`
+
+### Using BLE with Different Tools
+
+#### Web Bluetooth (Chrome/Edge Browser)
+
+Save this as `cyberglass-ble.html`:
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+    <h1>CyberGlass BLE Provisioning</h1>
+    <button onclick="connect()">Get WiFi Credentials</button>
+    <div id="result"></div>
+    <script>
+        async function connect() {
+            const device = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'CyberGlass-' }],
+                optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
+            });
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
+
+            const ssidChar = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+            const ssid = new TextDecoder().decode(await ssidChar.readValue());
+
+            const passChar = await service.getCharacteristic('1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e');
+            const password = new TextDecoder().decode(await passChar.readValue());
+
+            document.getElementById('result').innerHTML =
+                `<h2>SSID: ${ssid}</h2><h2>Password: ${password}</h2>`;
+        }
+    </script>
+</body>
+</html>
+```
+
+#### Python Script
+
+```python
+import asyncio
+from bleak import BleakScanner, BleakClient
+
+async def get_credentials():
+    devices = await BleakScanner.discover()
+    device = [d for d in devices if d.name and d.name.startswith("CyberGlass-")][0]
+
+    async with BleakClient(device) as client:
+        ssid = (await client.read_gatt_char("beb5483e-36e1-4688-b7f5-ea07361b26a8")).decode()
+        password = (await client.read_gatt_char("1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e")).decode()
+        print(f"SSID: {ssid}\nPassword: {password}")
+
+asyncio.run(get_credentials())
+```
+
+### Resetting Credentials
+
+To generate new WiFi credentials, erase NVS storage via serial:
+
+```
+esptool.py --port /dev/ttyUSB0 erase_region 0x9000 0x6000
+```
+
+Then reboot - new credentials will be generated.
 
 ## WiFi Configuration
 
-### Default Settings
+### Settings
 
 Located in [include/wifi_provisioning.h](include/wifi_provisioning.h):
 
 ```cpp
-#define AP_SSID "CyberGlass-AP"
-#define AP_PASSWORD "cyberglass123"
-#define AP_CHANNEL 1
-#define AP_MAX_CONNECTIONS 4
+#define AP_SSID_PREFIX "CyberGlass-"  // Prefix for SSID
+#define AP_CHANNEL 1                   // WiFi channel (1-13)
+#define AP_MAX_CONNECTIONS 4           // Max simultaneous clients
 ```
 
 ### Customization
 
-To change WiFi settings, edit `include/wifi_provisioning.h`:
+You can modify:
+- **SSID Prefix**: Change `AP_SSID_PREFIX` to customize name
+- **Password Length**: Edit `generatePassword()` function
+- **WiFi Channel**: Change `AP_CHANNEL` (avoid interference)
 
-```cpp
-// Change SSID
-#define AP_SSID "YourCustomName"
-
-// Change password (minimum 8 characters)
-#define AP_PASSWORD "your_secure_password"
-
-// Change WiFi channel (1-13)
-#define AP_CHANNEL 6
-
-// Change max simultaneous connections
-#define AP_MAX_CONNECTIONS 2
-```
-
-After editing, rebuild and upload:
+After editing, rebuild:
 
 ```bash
 pio run --target upload
@@ -183,12 +287,29 @@ Available commands:
 
 ## Troubleshooting
 
-### Cannot Connect to WiFi
+###Cannot Connect to WiFi / BLE
 
-1. **Check SSID**: Ensure you're connecting to `CyberGlass-AP`
-2. **Verify Password**: Default is `cyberglass123`
-3. **Check Serial Output**: Monitor for error messages
-4. **Restart Device**: Power cycle the ESP32S3
+1. **BLE Device Not Found**:
+   - Check serial output for "BLE advertising started"
+   - Ensure Bluetooth enabled on phone
+   - Move within 5 meters of device
+   - Grant location permissions to BLE scanner app
+
+2. **WiFi SSID Not Visible**:
+   - Check serial output for WiFi AP status
+   - Look for `CyberGlass-XXXX` (your device's unique ID)
+   - Try refreshing WiFi list
+   - Restart device
+
+3. **Wrong Password**:
+   - Use BLE to retrieve correct password
+   - Check serial output
+   - Password is case-sensitive
+
+4. **Connection Timeout**:
+   - Power cycle ESP32S3
+   - Try from different device
+   - Check for WiFi interference
 
 ### Web Interface Not Loading
 
@@ -279,25 +400,58 @@ Available commands:
 
 ## Security Considerations
 
-**Important**: This is a basic setup suitable for development/testing.
+**Important**: This setup is suitable for development, testing, and local use.
 
-### Current Security
-- ✅ WPA2 password protection
-- ✅ Limited to 4 simultaneous connections
-- ✅ No internet exposure (AP mode only)
+### Current Security Features
 
-### Not Included (Production Use)
-- ❌ HTTPS/TLS encryption
-- ❌ User authentication
-- ❌ Access control lists
-- ❌ Firmware update over WiFi
+✅ **Unique Credentials**: Each device has random SSID and password
+✅ **WPA2 Encryption**: WiFi uses WPA2-PSK
+✅ **Random Password**: 12-character random password
+✅ **Persistent Storage**: NVS storage (encrypted by ESP32)
+✅ **Limited Connections**: Max 4 simultaneous clients
+✅ **No Internet**: AP mode (not connected to internet)
 
-### Recommendations for Production
-1. Change default password in code
-2. Implement HTTPS with certificates
-3. Add authentication (username/password)
-4. Use WPA3 when available
-5. Consider VPN for remote access
+### Security Limitations
+
+⚠️ **BLE Open Read**: Anyone in BLE range can read WiFi credentials
+⚠️ **No BLE Pairing**: No PIN or passkey required for BLE
+⚠️ **HTTP Only**: No HTTPS/TLS encryption
+⚠️ **No Auth**: Web interface has no login
+⚠️ **Always Broadcasting**: BLE continuously advertises
+
+### Recommendations for Production Use
+
+1. **Disable BLE After Setup**:
+   ```cpp
+   // In main.cpp setup(), add after delay:
+   delay(300000);  // 5 minutes
+   wifiAP.stopBLE();
+   ```
+
+2. **BLE Pairing** (Advanced):
+   - Implement PIN-based BLE pairing
+   - Require passkey for characteristic read
+
+3. **HTTPS** (Advanced):
+   - Generate self-signed certificate
+   - Use ESPAsyncWebServer HTTPS
+
+4. **Web Authentication**:
+   - Add username/password to web interface
+   - Use HTTP Basic Auth or session cookies
+
+5. **Physical Security**:
+   - Add button to enable/disable BLE
+   - LED indicator for active connections
+
+### Risk Assessment
+
+| Scenario | Risk | Mitigation |
+|----------|------|------------|
+| Local Network Use | Low | Current setup adequate |
+| Public Demo | Medium | Disable BLE after setup |
+| Production Device | High | Implement all recommendations |
+| IoT Fleet | Very High | Custom provisioning app + encryption |
 
 ## Next Steps
 

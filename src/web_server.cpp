@@ -250,8 +250,11 @@ String WebServerManager::generateHTML() {
     html += "<div class='container'>";
     html += "<h1>CyberGlass Camera System</h1>";
     html += "<div class='info'>";
-    html += "<strong>WiFi AP:</strong> " + wifi->getSSID() + " | ";
-    html += "<strong>IP:</strong> " + wifi->getAPIP().toString();
+    html += "<strong>Device ID:</strong> " + wifi->getDeviceID() + "<br>";
+    html += "<strong>WiFi SSID:</strong> " + wifi->getSSID() + "<br>";
+    html += "<strong>WiFi Password:</strong> " + wifi->getPassword() + "<br>";
+    html += "<strong>IP Address:</strong> " + wifi->getAPIP().toString() + " | ";
+    html += "<strong>BLE Name:</strong> CyberGlass-" + wifi->getDeviceID();
     html += "</div>";
     html += "<div id='message' class='message'></div>";
     html += "<div class='video-container'>";
