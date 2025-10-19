@@ -4,7 +4,7 @@
 #define LED_PIN 21  // Built-in LED pin for XIAO ESP32S3
 
 void setup() {
-  Serial.begin(115200);         // Initialize serial communication
+  Serial.begin(921600);         // Initialize serial communication at high speed
   
   // Initialize camera module
   Serial.println("\n========================================");

@@ -10,7 +10,6 @@
  */
 
 #include "camera_module.h"
-#include "base64_encoder.h"
 #include "esp_camera.h"
 
 // XIAO ESP32S3 Sense camera pin configuration
@@ -424,71 +423,6 @@ bool capturePhoto() {
   return true;
 }
 
-/**
- * @brief Start video streaming mode
- */
-void startVideoStream() {
-  if (!cameraInitialized) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
-    return;
-  }
-
-  Serial.println("\n=== Video Streaming Mode ===");
-  Serial.println("[" + getTimestamp() + "] Starting video stream...");
-  Serial.println("[" + getTimestamp() + "] Send 'stop' command to exit");
-  Serial.println("==============================\n");
-  
-  isStreaming = true;
-  unsigned long frameCount = 0;
-  unsigned long totalBytes = 0;
-  unsigned long streamStart = millis();
-  
-  while (isStreaming) {
-    // Check for stop command
-    if (Serial.available() > 0) {
-      String cmd = Serial.readStringUntil('\n');
-      cmd.trim();
-      cmd.toLowerCase();
-      if (cmd == "stop") {
-        isStreaming = false;
-        break;
-      }
-    }
-    
-    // Get frame from buffer
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("[" + getTimestamp() + "] ERROR: Frame capture failed");
-      delay(100);
-      continue;
-    }
-    
-    frameCount++;
-    totalBytes += fb->len;
-    
-    // Send frame marker and Base64 data
-    Serial.println("---BEGIN_FRAME---");
-    sendBase64(fb->buf, fb->len);
-    Serial.println("---END_FRAME---");
-    
-    // Release frame buffer
-    esp_camera_fb_return(fb);
-    
-    // Small delay to control frame rate and allow serial processing
-    delay(50);  // ~20 FPS max
-  }
-  
-  // Print streaming statistics
-  unsigned long streamDuration = millis() - streamStart;
-  Serial.println("\n=== Streaming Statistics ===");
-  Serial.printf("[%s] Total frames: %lu\n", getTimestamp().c_str(), frameCount);
-  Serial.printf("[%s] Total data: %.2f MB\n", getTimestamp().c_str(), totalBytes / 1048576.0);
-  Serial.printf("[%s] Duration: %.1f seconds\n", getTimestamp().c_str(), streamDuration / 1000.0);
-  if (streamDuration > 0) {
-    Serial.printf("[%s] Average FPS: %.2f\n", getTimestamp().c_str(), frameCount * 1000.0 / streamDuration);
-  }
-  Serial.println("============================\n");
-}
 
 /**
  * @brief Start video streaming mode with binary transfer (faster)
@@ -540,13 +474,13 @@ void startBinaryVideoStream() {
     totalBytes += fb->len;
     
     // Send frame in binary format:
-    // [MARKER: 4 bytes 0xAA 0xBB 0xCC 0xDD]
+    // [MARKER: 4 bytes 0xC0 0x1D 0xF1 0x8E - "COLD FIRE"]
     // [SIZE: 4 bytes, little-endian]
     // [DATA: SIZE bytes]
-    Serial.write(0xAA);
-    Serial.write(0xBB);
-    Serial.write(0xCC);
-    Serial.write(0xDD);
+    Serial.write(0xC0);
+    Serial.write(0x1D);
+    Serial.write(0xF1);
+    Serial.write(0x8E);
     
     // Send size (32-bit little-endian)
     Serial.write((uint8_t)(fb->len & 0xFF));
@@ -585,10 +519,10 @@ void startBinaryVideoStream() {
 }
 
 /**
- * @brief Capture a photo and send via serial as Base64 encoded data
+ * @brief Capture a photo and send via serial in binary format
  * @return true if successful, false otherwise
  */
-bool captureAndSendBase64() {
+bool captureAndSendBinary() {
   if (!cameraInitialized) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
     return false;
@@ -600,7 +534,6 @@ bool captureAndSendBase64() {
   // Get current frame from buffer (camera continuously captures)
   // Note: With CAMERA_GRAB_LATEST mode, this returns the latest frame immediately
   camera_fb_t *fb = esp_camera_fb_get();
-  
   if (!fb) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera capture failed");
     return false;
@@ -615,23 +548,39 @@ bool captureAndSendBase64() {
   Serial.printf("  - Width: %d pixels\n", fb->width);
   Serial.printf("  - Height: %d pixels\n", fb->height);
   Serial.printf("  - Format: %s\n", fb->format == PIXFORMAT_JPEG ? "JPEG" : "RAW");
-  
-  // Send photo data as Base64
-  Serial.println("[" + getTimestamp() + "] Sending photo data via Base64...");
-  Serial.println("---BEGIN_IMAGE---");
-  
+
+  // Send photo data in binary format
+  Serial.println("[" + getTimestamp() + "] Sending photo data in binary format...");
+
   unsigned long transfer_start = millis();
-  sendBase64(fb->buf, fb->len);
+
+  // Send frame in binary format:
+  // [MARKER: 4 bytes 0xC0 0x1D 0xF1 0x8E - "COLD FIRE"]
+  // [SIZE: 4 bytes, little-endian]
+  // [DATA: SIZE bytes]
+  Serial.write(0xC0);
+  Serial.write(0x1D);
+  Serial.write(0xF1);
+  Serial.write(0x8E);
+
+  // Send size (32-bit little-endian)
+  Serial.write((uint8_t)(fb->len & 0xFF));
+  Serial.write((uint8_t)((fb->len >> 8) & 0xFF));
+  Serial.write((uint8_t)((fb->len >> 16) & 0xFF));
+  Serial.write((uint8_t)((fb->len >> 24) & 0xFF));
+
+  // Send JPEG data
+  Serial.write(fb->buf, fb->len);
+  Serial.flush();
+
   unsigned long transfer_end = millis();
   unsigned long transfer_time = transfer_end - transfer_start;
-  
-  Serial.println("---END_IMAGE---");
+
   Serial.printf("[%s] Photo transmission: COMPLETE\n", getTimestamp().c_str());
   Serial.printf("[%s] Performance Summary:\n", getTimestamp().c_str());
   Serial.printf("  - Transfer time: %lu ms\n", transfer_time);
   Serial.printf("  - Transfer speed: %.2f KB/s\n", (fb->len / 1024.0) / (transfer_time / 1000.0));
   Serial.printf("  - Note: Frame retrieved from continuous buffer (0ms retrieval)\n");
-  
   // Release frame buffer
   esp_camera_fb_return(fb);
   Serial.println("[" + getTimestamp() + "] Frame buffer released");
@@ -680,12 +629,9 @@ void processCameraCommand() {
           capturePhoto();
         }
         else if (command == "send" || command == "d") {
-          captureAndSendBase64();
+          captureAndSendBinary();
         }
         else if (command == "stream") {
-          startVideoStream();
-        }
-        else if (command == "bstream") {
           startBinaryVideoStream();
         }
         else if (command == "stop") {
@@ -822,9 +768,8 @@ void processCameraCommand() {
           Serial.println("\n=== Available Commands ===");
           Serial.println("  init       (i) - (Re)initialize camera module");
           Serial.println("  capture    (c) - Capture a photo and display info");
-          Serial.println("  send       (d) - Capture and send photo via Base64");
-          Serial.println("  stream         - Start video streaming (Base64)");
-          Serial.println("  bstream        - Start binary video stream (FASTER)");
+          Serial.println("  send       (d) - Capture and send photo (binary)");
+          Serial.println("  stream         - Start video streaming (binary)");
           Serial.println("  stop           - Stop video streaming");
           Serial.println("  resolution (r) - Change camera resolution");
           Serial.println("  quality    (q) - Change JPEG quality (0-63)");
