@@ -13,10 +13,9 @@ import threading
 from io import BytesIO
 
 class VideoStreamViewer:
-    def __init__(self, port, baudrate=921600, target_fps=30):
+    def __init__(self, port, baudrate=921600):
         self.port = port
         self.baudrate = baudrate
-        self.target_fps = target_fps
         self.is_running = False
         self.current_frame = None
         self.frame_count = 0
@@ -28,12 +27,9 @@ class VideoStreamViewer:
         """Start the video stream"""
         print(f"Opening serial port: {self.port}")
         print(f"Baud rate: {self.baudrate}")
-        print(f"Target FPS: {self.target_fps}")
         print("\nControls:")
         print("  - Press 'q' in video window to quit")
         print("  - Press 's' in video window to save current frame")
-        print("  - Press '+' or '=' in video window to increase FPS")
-        print("  - Press '-' or '_' in video window to decrease FPS")
         print("\nStarting video stream...\n")
         
         try:
@@ -51,10 +47,7 @@ class VideoStreamViewer:
             
             # Create window
             cv2.namedWindow('ESP32 Camera Stream', cv2.WINDOW_NORMAL)
-            
-            frame_interval = 1.0 / self.target_fps
-            last_frame_time = time.time()
-            
+
             while self.is_running:
                 # Read binary frame data
                 try:
@@ -206,18 +199,17 @@ class VideoStreamViewer:
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: python3 video_stream.py <port> [fps]")
-        print("Example: python3 video_stream.py /dev/cu.usbmodem14201 10")
+        print("Usage: python3 video_stream.py <port>")
+        print("Example: python3 video_stream.py /dev/cu.usbmodem14201")
         print("\nAvailable ports:")
         import serial.tools.list_ports
         ports = serial.tools.list_ports.comports()
         for port in ports:
             print(f"  - {port.device}")
         sys.exit(1)
-    
+
     port = sys.argv[1]
-    fps = int(sys.argv[2]) if len(sys.argv) > 2 else 10
-    
-    viewer = VideoStreamViewer(port, target_fps=fps)
+
+    viewer = VideoStreamViewer(port)
     viewer.start_stream()
 

@@ -23,7 +23,6 @@ void setup() {
 void loop() {
   // Process camera commands from serial port
   processCameraCommand();
-  
   // Small delay to prevent excessive CPU usage
   delay(10);
 }
