@@ -42,16 +42,22 @@ pio device monitor
 
 ### 2. Connect to WiFi
 
-The device creates its own WiFi network on boot:
+The device creates its own WiFi network on first boot with unique credentials:
 
-- **SSID**: `CyberGlass-AP`
-- **Password**: `cyberglass123`
+- **SSID**: `CyberGlass-XXXX` (where XXXX is device-specific MAC address)
+- **Password**: 12-character random password
 - **IP Address**: `192.168.4.1`
 
+**Important**: Check the serial monitor output to find your device's actual WiFi credentials. The SSID and password are randomly generated on first boot and saved permanently.
+
 Connection steps:
-1. Connect your phone/laptop to `CyberGlass-AP` WiFi
-2. Open browser to `http://192.168.4.1`
-3. Use web interface to control camera
+
+1. Check serial monitor for SSID and password
+2. Connect your phone/laptop to the `CyberGlass-XXXX` WiFi network
+3. Open browser to `http://192.168.4.1`
+4. Use web interface to control camera
+
+**Alternative**: Use the BLE provisioning feature to retrieve credentials wirelessly (see BLE section below)
 
 ### 3. Use Web Interface
 
@@ -163,14 +169,15 @@ vlc http://192.168.4.1/stream
 
 ### WiFi Settings
 
-Edit [include/wifi_provisioning.h](include/wifi_provisioning.h):
+WiFi credentials are automatically generated on first boot and saved to device memory. To customize the WiFi configuration, edit [include/wifi_provisioning.h](include/wifi_provisioning.h):
 
 ```cpp
-#define AP_SSID "CyberGlass-AP"        // Change WiFi name
-#define AP_PASSWORD "cyberglass123"    // Change password (min 8 chars)
+#define AP_SSID_PREFIX "CyberGlass-"   // SSID prefix (device MAC will be appended)
 #define AP_CHANNEL 1                   // WiFi channel (1-13)
 #define AP_MAX_CONNECTIONS 4           // Max simultaneous clients
 ```
+
+**Note**: The password is randomly generated and cannot be changed without modifying the source code. To reset credentials, erase the device flash memory.
 
 ### Camera Settings
 
@@ -202,12 +209,12 @@ config.jpeg_quality = 10;  // 0-63 (lower = better quality)
 ### WiFi Issues
 
 - **Can't connect to AP**:
-  - Check SSID is `CyberGlass-AP` in WiFi list
-  - Verify password: `cyberglass123` (case-sensitive)
-  - Check serial output for "WiFi AP started successfully"
+  - Check serial monitor for the actual SSID (format: `CyberGlass-XXXX`)
+  - Copy the password exactly from serial output (12 random characters)
+  - Ensure device shows "WiFi AP started successfully" in serial monitor
 
 - **Web page won't load**:
-  - Ensure connected to `CyberGlass-AP` network
+  - Ensure connected to your device's WiFi network (check serial monitor for SSID)
   - Navigate to exactly `http://192.168.4.1`
   - Try different browser (Chrome/Firefox/Safari)
 
@@ -300,28 +307,3 @@ For issues:
 1. Check serial monitor for error messages
 2. Review documentation
 3. Create GitHub issue with logs
-
-## Roadmap
-
-### Completed ✅
-- [x] Serial binary streaming (30 FPS)
-- [x] WiFi Access Point mode
-- [x] Web-based control interface
-- [x] MJPEG streaming over WiFi (10 FPS)
-- [x] Multi-client support (4 connections)
-- [x] Dynamic resolution/quality control
-- [x] Proper buffer management (no corruption)
-
-### Planned 🚀
-- [ ] WiFi Station mode (connect to existing WiFi network)
-- [ ] mDNS support (access via `cyberglass.local`)
-- [ ] WebSocket streaming (lower latency)
-- [ ] Motion detection with notifications
-- [ ] SD card image storage
-- [ ] Time-lapse recording
-- [ ] Mobile app (iOS/Android)
-- [ ] HTTPS/TLS encryption
-
----
-
-Made with ESP32S3 ❤️
