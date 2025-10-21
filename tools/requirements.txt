@@ -1,0 +1,12 @@
+# CyberGlass Python Tools Dependencies
+# Install: pip install -r requirements.txt
+
+# BLE communication (for ble_connect_and_open.py)
+bleak>=0.21.0
+
+# Serial port communication (for video_stream.py, fast_video_stream.py, receive_photo.py)
+pyserial>=3.5
+
+# OpenCV and NumPy (for video display in video_stream.py and fast_video_stream.py)
+opencv-python>=4.8.0
+numpy>=1.24.0
