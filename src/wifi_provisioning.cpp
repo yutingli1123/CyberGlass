@@ -279,7 +279,6 @@ bool WiFiProvisioning::initBLE() {
     Serial.println("BLE advertising started");
     Serial.print("BLE Device Name: ");
     Serial.println(bleName);
-    Serial.println("Use BLE scanner app to connect and get credentials");
     Serial.println("======================================");
 
     return true;
