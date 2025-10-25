@@ -246,9 +246,9 @@ import 'dart:async';
 
 class BLEService {
   // CyberGlass UUIDs
-  static final Guid serviceUuid = Guid("4fafc201-1fb5-459e-8fcc-c5c9c331914b");
-  static final Guid ssidCharUuid = Guid("beb5483e-36e1-4688-b7f5-ea07361b26a8");
-  static final Guid passwordCharUuid = Guid("1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e");
+  static final Guid serviceUuid = Guid("c153f40c-b1eb-11f0-bf8b-dbb9b632dc78");
+  static final Guid ssidCharUuid = Guid("c5dad860-b1eb-11f0-96db-bb1907c420ec");
+  static final Guid passwordCharUuid = Guid("c8ee211a-b1eb-11f0-bfc4-777d4dda4cde");
 
   final FlutterBluePlus _flutterBlue = FlutterBluePlus();
 

@@ -18,17 +18,17 @@
 #define AP_MAX_CONNECTIONS 4
 
 // BLE Configuration
-#define BLE_SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define BLE_CHAR_SSID_UUID      "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define BLE_CHAR_PASSWORD_UUID  "1c95d5e3-d8f7-413a-bf3d-7a2e5d7be87e"
+#define BLE_SERVICE_UUID        "c153f40c-b1eb-11f0-bf8b-dbb9b632dc78"
+#define BLE_CHAR_SSID_UUID      "c5dad860-b1eb-11f0-96db-bb1907c420ec"
+#define BLE_CHAR_PASSWORD_UUID  "c8ee211a-b1eb-11f0-bfc4-777d4dda4cde"
 #define BLE_DEVICE_NAME_PREFIX  "CyberGlass-"
 
 // New BLE Characteristics for External WiFi Provisioning
-#define BLE_CHAR_EXT_SSID_UUID      "a3c87500-8ed3-4bdf-8a39-a01bebede295"     // WRITE - External WiFi SSID
-#define BLE_CHAR_EXT_PASSWORD_UUID  "a3c87501-8ed3-4bdf-8a39-a01bebede295"     // WRITE - External WiFi Password
-#define BLE_CHAR_WIFI_STATUS_UUID   "a3c87502-8ed3-4bdf-8a39-a01bebede295"     // READ/NOTIFY - Connection status
-#define BLE_CHAR_STA_IP_UUID        "a3c87503-8ed3-4bdf-8a39-a01bebede295"     // READ/NOTIFY - STA mode IP address
-#define BLE_CHAR_WIFI_MODE_UUID     "a3c87504-8ed3-4bdf-8a39-a01bebede295"     // WRITE - WiFi mode (0=AP, 1=STA, 2=AP+STA)
+#define BLE_CHAR_EXT_SSID_UUID      "e2bd3d24-b1eb-11f0-8222-abd7b78f2ca6"     // WRITE - External WiFi SSID
+#define BLE_CHAR_EXT_PASSWORD_UUID  "e616b554-b1eb-11f0-bdab-fb872f685991"     // WRITE - External WiFi Password
+#define BLE_CHAR_WIFI_STATUS_UUID   "e9855d30-b1eb-11f0-96aa-abcc2336cb9a"     // READ/NOTIFY - Connection status
+#define BLE_CHAR_STA_IP_UUID        "f07cce0c-b1eb-11f0-b066-372eb4121903"     // READ/NOTIFY - STA mode IP address
+#define BLE_CHAR_WIFI_MODE_UUID     "f456ce38-b1eb-11f0-a60f-2b366feccc96"     // WRITE - WiFi mode (0=AP, 1=STA, 2=AP+STA)
 
 // WiFi Mode Constants
 #define WIFI_MODE_AP_ONLY    0
