@@ -280,7 +280,6 @@ bool WiFiProvisioning::initBLE() {
     Serial.print("BLE Device Name: ");
     Serial.println(bleName);
     Serial.println("Use BLE scanner app to connect and get credentials");
-    Serial.println("SECURITY: Pairing required with PIN: 123456");
     Serial.println("======================================");
 
     return true;
