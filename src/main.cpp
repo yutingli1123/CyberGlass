@@ -20,16 +20,31 @@ void setup() {
   Serial.println("  XIAO ESP32S3 - CyberGlass System");
   Serial.println("========================================");
 
-  // Initialize WiFi Access Point (generates unique SSID/password)
-  if (wifiAP.initAP()) {
-    Serial.println("[" + getTimestamp() + "] WiFi AP: READY");
+  // Initialize WiFi (AP mode by default, or AP+STA if external WiFi is configured)
+  // Load any saved external WiFi credentials first
+  wifiAP.loadExternalCredentials();
+
+  // Check if external WiFi is configured and start in appropriate mode
+  if (wifiAP.getExternalSSID().length() > 0 && wifiAP.getWiFiMode() != WIFI_MODE_AP_ONLY) {
+    // Start in dual mode (AP + STA)
+    Serial.println("External WiFi configured, starting in AP+STA mode...");
+    if (wifiAP.initAPSTA()) {
+      Serial.println("[" + getTimestamp() + "] WiFi AP+STA: READY");
+    } else {
+      Serial.println("[" + getTimestamp() + "] WARNING: WiFi initialization failed");
+    }
   } else {
-    Serial.println("[" + getTimestamp() + "] WARNING: WiFi AP initialization failed");
+    // Start in AP-only mode (default)
+    if (wifiAP.initAP()) {
+      Serial.println("[" + getTimestamp() + "] WiFi AP: READY");
+    } else {
+      Serial.println("[" + getTimestamp() + "] WARNING: WiFi AP initialization failed");
+    }
   }
 
-  // Initialize BLE for provisioning
+  // Initialize BLE for provisioning (with pairing security)
   if (wifiAP.initBLE()) {
-    Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY");
+    Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (Pairing required)");
   } else {
     Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
   }
@@ -48,15 +63,40 @@ void setup() {
   server.begin();
   Serial.println("[" + getTimestamp() + "] Web server: READY");
 
+  // Start mDNS for easy discovery
+  wifiAP.startMDNS();
+  Serial.println("[" + getTimestamp() + "] mDNS: READY");
+
+  // Print connection information
   Serial.println("\n========================================");
   Serial.println("WiFi Credentials (also available via BLE):");
-  Serial.println("  SSID: " + wifiAP.getSSID());
-  Serial.println("  Password: " + wifiAP.getPassword());
+  Serial.println("  AP SSID: " + wifiAP.getSSID());
+  Serial.println("  AP Password: " + wifiAP.getPassword());
   Serial.println("  Device ID: " + wifiAP.getDeviceID());
+
+  if (wifiAP.isConnectedToSTA()) {
+    Serial.println("\nStation Mode:");
+    Serial.println("  Status: Connected to " + wifiAP.getExternalSSID());
+    Serial.println("  STA IP: " + wifiAP.getSTAIP().toString());
+    Serial.println("  mDNS: http://" + wifiAP.getMDNSHostname());
+  }
+
   Serial.println("\nBLE Device Name: CyberGlass-" + wifiAP.getDeviceID());
-  Serial.println("Use a BLE scanner app to read credentials wirelessly");
-  Serial.println("\nWeb Interface: http://" + wifiAP.getAPIP().toString());
-  Serial.println("Type 'help' or 'h' for serial camera commands");
+  Serial.println("Use a BLE scanner app to:");
+  Serial.println("  - Read AP credentials wirelessly");
+  Serial.println("  - Send external WiFi credentials");
+  Serial.println("  - Switch WiFi modes");
+  Serial.println("\nNote: BLE is open for initial setup (within range ~10m)");
+  Serial.println("Security enforced via WiFi network isolation");
+
+  Serial.println("\nWeb Interface:");
+  Serial.println("  AP Mode: http://" + wifiAP.getAPIP().toString());
+  if (wifiAP.isConnectedToSTA()) {
+    Serial.println("  STA Mode: http://" + wifiAP.getSTAIP().toString());
+    Serial.println("  mDNS: http://" + wifiAP.getMDNSHostname());
+  }
+
+  Serial.println("\nType 'help' or 'h' for serial camera commands");
   Serial.println("========================================\n");
 }
 
