@@ -1,122 +1,23 @@
 #include "web_server.h"
 
-// Frame delay for streaming (milliseconds)
-const unsigned long frameDelay = 100; // 10 FPS
-
-// Global state for streaming
-static camera_fb_t *streamFrameBuffer = nullptr;
-static size_t streamFrameIndex = 0;
-static bool streamHeaderSent = false;
-static volatile bool streamActive = false;
-
-// Stream handler function
-static void streamJpg(AsyncWebServerRequest *request){
-    Serial.println("Stream request received");
-    streamActive = true;
-
-    AsyncWebServerResponse *response = request->beginChunkedResponse(
-        "multipart/x-mixed-replace;boundary=frame",
-        [](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-            // Check if stream should stop
-            if (!streamActive) {
-                Serial.println("Stream stopped by user");
-                if (streamFrameBuffer) {
-                    esp_camera_fb_return(streamFrameBuffer);
-                    streamFrameBuffer = nullptr;
-                }
-                return 0;
-            }
-
-            // Get new frame if needed
-            if (streamFrameBuffer == nullptr) {
-                streamFrameBuffer = esp_camera_fb_get();
-                if (!streamFrameBuffer) {
-                    Serial.println("ERROR: Camera frame failed!");
-                    return 0;
-                }
-                Serial.printf("New frame: %d bytes\n", streamFrameBuffer->len);
-                streamFrameIndex = 0;
-                streamHeaderSent = false;
-            }
-
-            size_t bytesWritten = 0;
-
-            // Send header first
-            if (!streamHeaderSent) {
-                String header = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ";
-                header += String(streamFrameBuffer->len);
-                header += "\r\n\r\n";
-
-                size_t headerLen = header.length();
-                if (headerLen > maxLen) {
-                    esp_camera_fb_return(streamFrameBuffer);
-                    streamFrameBuffer = nullptr;
-                    return 0;
-                }
-
-                memcpy(buffer, header.c_str(), headerLen);
-                bytesWritten = headerLen;
-                streamHeaderSent = true;
-                return bytesWritten;
-            }
-
-            // Send frame data
-            size_t remaining = streamFrameBuffer->len - streamFrameIndex;
-            size_t toSend = min(remaining, maxLen - 2); // Reserve 2 bytes for \r\n
-
-            if (toSend > 0) {
-                memcpy(buffer, streamFrameBuffer->buf + streamFrameIndex, toSend);
-                streamFrameIndex += toSend;
-                bytesWritten = toSend;
-            }
-
-            // Check if frame is complete
-            if (streamFrameIndex >= streamFrameBuffer->len) {
-                // Add trailing \r\n
-                if (bytesWritten + 2 <= maxLen) {
-                    buffer[bytesWritten++] = '\r';
-                    buffer[bytesWritten++] = '\n';
-                }
-
-                // Release frame and prepare for next
-                esp_camera_fb_return(streamFrameBuffer);
-                streamFrameBuffer = nullptr;
-                streamFrameIndex = 0;
-                streamHeaderSent = false;
-
-                // Small delay for frame rate control
-                delay(frameDelay);
-            }
-
-            return bytesWritten;
-        }
-    );
-
-    request->send(response);
-}
-
-WebServerManager::WebServerManager(AsyncWebServer* serverPtr, WiFiProvisioning* wifiPtr)
-    : server(serverPtr), wifi(wifiPtr) {
+WebServerManager::WebServerManager(AsyncWebServer* serverPtr, WiFiProvisioning* wifiPtr, UDPStream* udpPtr)
+    : server(serverPtr), wifi(wifiPtr), udpStream(udpPtr), lastCaptureTime(0) {
+    Serial.println("Web server manager initialized");
 }
 
 void WebServerManager::setupRoutes() {
-    // Root page - Web interface
-    server->on("/", HTTP_GET, [this](AsyncWebServerRequest *request){
-        this->handleRoot(request);
-    });
-
-    // Capture single photo
+    // Capture single photo (JPEG)
     server->on("/capture", HTTP_GET, [this](AsyncWebServerRequest *request){
         this->handleCapture(request);
     });
 
-    // MJPEG Stream endpoint
-    server->on("/stream", HTTP_GET, [this](AsyncWebServerRequest *request){
-        this->handleStream(request);
+    // Start UDP video stream
+    server->on("/stream/start", HTTP_GET, [this](AsyncWebServerRequest *request){
+        this->handleStart(request);
     });
 
-    // Stop streaming
-    server->on("/stop", HTTP_GET, [this](AsyncWebServerRequest *request){
+    // Stop UDP video stream
+    server->on("/stream/stop", HTTP_GET, [this](AsyncWebServerRequest *request){
         this->handleStop(request);
     });
 
@@ -130,59 +31,110 @@ void WebServerManager::setupRoutes() {
         this->handleQuality(request);
     });
 
-    // Status endpoint
+    // Status endpoint (JSON)
     server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request){
         this->handleStatus(request);
     });
 
-    Serial.println("Web server routes configured");
-}
-
-void WebServerManager::handleRoot(AsyncWebServerRequest *request) {
-    String html = generateHTML();
-    request->send(200, "text/html", html);
+    Serial.println("API endpoints configured:");
+    Serial.println("  GET /capture - Capture single photo");
+    Serial.println("  GET /stream/start - Start UDP video stream");
+    Serial.println("  GET /stream/stop - Stop UDP video stream");
+    Serial.println("  GET /resolution?value=<res> - Change resolution");
+    Serial.println("  GET /quality?value=<num> - Change quality");
+    Serial.println("  GET /status - Get device status (JSON)");
 }
 
 void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
-    camera_fb_t * fb = esp_camera_fb_get();
-    if (!fb) {
-        Serial.println("Capture: Camera failed");
-        request->send(500, "text/plain", "Camera capture failed");
+    // Rate limiting: prevent concurrent requests that could exhaust frame buffers
+    unsigned long now = millis();
+    if (now - lastCaptureTime < MIN_CAPTURE_INTERVAL) {
+        request->send(429, "text/plain", "Too many requests");
         return;
     }
 
-    Serial.printf("Capture: Got frame %d bytes\n", fb->len);
+    // Check PSRAM availability before burst capture
+    size_t freePsram = ESP.getFreePsram();
+    if (freePsram < MIN_FREE_PSRAM * 2) {
+        Serial.printf("Capture: Insufficient PSRAM - %d bytes free\n", freePsram);
+        request->send(503, "text/plain", "Low memory");
+        return;
+    }
 
-    // Send image with callback that manages buffer lifetime
+    lastCaptureTime = now;
+
+    // Burst capture: take 5 shots, select largest (sharpest image, less JPEG compression)
+    camera_fb_t* bestFrame = nullptr;
+    size_t bestSize = 0;
+    const int NUM_SHOTS = 5;
+
+    Serial.println("Capture: Starting 5-shot burst...");
+
+    for (int i = 0; i < NUM_SHOTS; i++) {
+        camera_fb_t* fb = esp_camera_fb_get();
+        if (!fb) {
+            Serial.printf("Capture: Shot %d/%d failed\n", i + 1, NUM_SHOTS);
+            continue;
+        }
+
+        Serial.printf("Capture: Shot %d/%d = %d bytes\n", i + 1, NUM_SHOTS, fb->len);
+
+        // Larger file size = less compression = sharper image
+        if (fb->len > bestSize) {
+            if (bestFrame) {
+                esp_camera_fb_return(bestFrame);
+            }
+            bestFrame = fb;
+            bestSize = fb->len;
+        } else {
+            esp_camera_fb_return(fb);
+        }
+
+        // Delay between shots for auto-exposure/white-balance adjustment
+        if (i < NUM_SHOTS - 1) {
+            delay(20);
+        }
+    }
+
+    if (!bestFrame) {
+        Serial.println("Capture: All 5 shots failed");
+        request->send(500, "text/plain", "Camera failed");
+        return;
+    }
+
+    Serial.printf("Capture: Selected best frame = %d bytes (PSRAM free: %d KB)\n",
+                  bestFrame->len, freePsram / 1024);
+
+    // Copy to heap, then immediately release camera buffer to prevent deadlock
+    uint8_t* buffer = (uint8_t*)malloc(bestFrame->len);
+    if (!buffer) {
+        Serial.println("Capture: Heap allocation failed");
+        esp_camera_fb_return(bestFrame);
+        request->send(500, "text/plain", "Out of memory");
+        return;
+    }
+
+    memcpy(buffer, bestFrame->buf, bestFrame->len);
+    size_t len = bestFrame->len;
+    esp_camera_fb_return(bestFrame);
+
+    // Send JPEG response (heap buffer freed automatically when transfer completes)
     AsyncWebServerResponse *response = request->beginResponse(
         "image/jpeg",
-        fb->len,
-        [fb](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
-            size_t remaining = fb->len - index;
-            size_t toSend = min(remaining, maxLen);
-
-            memcpy(buffer, fb->buf + index, toSend);
-
-            // Release buffer when done
-            if (index + toSend >= fb->len) {
-                esp_camera_fb_return(fb);
+        len,
+        [buffer, len](uint8_t *outputBuffer, size_t maxLen, size_t index) -> size_t {
+            size_t remaining = len - index;
+            if (remaining == 0) {
+                free(buffer);
+                return 0;
             }
-
+            size_t toSend = min(remaining, maxLen);
+            memcpy(outputBuffer, buffer + index, toSend);
             return toSend;
         }
     );
 
     request->send(response);
-}
-
-void WebServerManager::handleStream(AsyncWebServerRequest *request) {
-    streamJpg(request);
-}
-
-void WebServerManager::handleStop(AsyncWebServerRequest *request) {
-    streamActive = false;
-    Serial.println("Stop request received");
-    request->send(200, "text/plain", "Stream stop signal sent");
 }
 
 void WebServerManager::handleResolution(AsyncWebServerRequest *request) {
@@ -216,108 +168,32 @@ void WebServerManager::handleQuality(AsyncWebServerRequest *request) {
     }
 }
 
+void WebServerManager::handleStart(AsyncWebServerRequest *request) {
+    IPAddress clientIP = request->client()->remoteIP();
+    udpStream->start(clientIP, UDP_PORT);
+
+    Serial.printf("Start: Streaming to %s:%d\n", clientIP.toString().c_str(), UDP_PORT);
+
+    String response = "{";
+    response += "\"status\":\"streaming\",";
+    response += "\"client\":\"" + clientIP.toString() + "\",";
+    response += "\"port\":" + String(UDP_PORT);
+    response += "}";
+    request->send(200, "application/json", response);
+}
+
+void WebServerManager::handleStop(AsyncWebServerRequest *request) {
+    udpStream->stop();
+    Serial.println("Stop: Streaming stopped");
+    request->send(200, "application/json", "{\"status\":\"stopped\"}");
+}
+
 void WebServerManager::handleStatus(AsyncWebServerRequest *request) {
     String status = "{";
     status += "\"clients\":" + String(wifi->getClientCount()) + ",";
     status += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
-    status += "\"psram\":" + String(ESP.getFreePsram());
+    status += "\"psram\":" + String(ESP.getFreePsram()) + ",";
+    status += "\"streaming\":" + String(udpStream->isStreaming() ? "true" : "false");
     status += "}";
     request->send(200, "application/json", status);
-}
-
-String WebServerManager::generateHTML() {
-    String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>";
-    html += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
-    html += "<title>CyberGlass Camera</title>";
-    html += "<style>";
-    html += "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f0f0f0; }";
-    html += "h1 { color: #333; }";
-    html += ".container { max-width: 900px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }";
-    html += ".video-container { text-align: center; margin: 20px 0; background: #000; border-radius: 4px; min-height: 400px; display: flex; align-items: center; justify-content: center; }";
-    html += "#stream { max-width: 100%; height: auto; }";
-    html += ".controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 20px 0; }";
-    html += "button { padding: 12px 20px; font-size: 16px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; }";
-    html += "button:hover { background: #0056b3; }";
-    html += "button.stop { background: #dc3545; }";
-    html += "button.stop:hover { background: #c82333; }";
-    html += ".info { background: #e9ecef; padding: 15px; border-radius: 4px; margin: 10px 0; }";
-    html += "select { padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc; width: 100%; }";
-    html += "label { display: block; margin-bottom: 5px; font-weight: bold; color: #555; }";
-    html += ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }";
-    html += ".message.success { background: #d4edda; color: #155724; display: block; }";
-    html += ".message.error { background: #f8d7da; color: #721c24; display: block; }";
-    html += "</style></head><body>";
-    html += "<div class='container'>";
-    html += "<h1>CyberGlass Camera System</h1>";
-    html += "<div class='info'>";
-    html += "<strong>Device ID:</strong> " + wifi->getDeviceID() + "<br>";
-    html += "<strong>WiFi SSID:</strong> " + wifi->getSSID() + "<br>";
-    html += "<strong>WiFi Password:</strong> " + wifi->getPassword() + "<br>";
-    html += "<strong>IP Address:</strong> " + wifi->getAPIP().toString() + " | ";
-    html += "<strong>BLE Name:</strong> CyberGlass-" + wifi->getDeviceID();
-    html += "</div>";
-    html += "<div id='message' class='message'></div>";
-    html += "<div class='video-container'>";
-    html += "<img id='stream' src='' alt='Camera stream will appear here' />";
-    html += "</div>";
-    html += "<div class='controls'>";
-    html += "<button onclick='capturePhoto()'>Capture Photo</button>";
-    html += "<button onclick='startStream()'>Start Stream</button>";
-    html += "<button class='stop' onclick='stopStream()'>Stop Stream</button>";
-    html += "</div>";
-    html += "<div class='controls'>";
-    html += "<div><label>Resolution:</label><select id='resolution' onchange='changeRes(this.value)'>";
-    html += "<option value='QQVGA'>QQVGA (160x120)</option>";
-    html += "<option value='QVGA'>QVGA (320x240)</option>";
-    html += "<option value='VGA' selected>VGA (640x480)</option>";
-    html += "<option value='SVGA'>SVGA (800x600)</option>";
-    html += "<option value='XGA'>XGA (1024x768)</option>";
-    html += "<option value='HD'>HD (1280x720)</option>";
-    html += "<option value='SXGA'>SXGA (1280x1024)</option>";
-    html += "<option value='UXGA'>UXGA (1600x1200)</option>";
-    html += "</select></div>";
-    html += "<div><label>Quality (0-63):</label><select id='quality' onchange='changeQual(this.value)'>";
-    html += "<option value='5'>5 (High Quality)</option>";
-    html += "<option value='10' selected>10 (Default)</option>";
-    html += "<option value='15'>15</option>";
-    html += "<option value='20'>20</option>";
-    html += "<option value='25'>25</option>";
-    html += "<option value='30'>30 (Lower Quality)</option>";
-    html += "</select></div>";
-    html += "</div>";
-    html += "<script>";
-    html += "function showMessage(msg, type) {";
-    html += "  const el = document.getElementById('message');";
-    html += "  el.textContent = msg;";
-    html += "  el.className = 'message ' + type;";
-    html += "  setTimeout(() => { el.style.display = 'none'; }, 3000);";
-    html += "}";
-    html += "function capturePhoto() {";
-    html += "  document.getElementById('stream').src = '/capture?' + Date.now();";
-    html += "  showMessage('Photo captured!', 'success');";
-    html += "}";
-    html += "function startStream() {";
-    html += "  document.getElementById('stream').src = '/stream?' + Date.now();";
-    html += "  showMessage('Stream started', 'success');";
-    html += "}";
-    html += "function stopStream() {";
-    html += "  document.getElementById('stream').src = '';";
-    html += "  fetch('/stop').then(() => showMessage('Stream stopped', 'success'));";
-    html += "}";
-    html += "function changeRes(val) {";
-    html += "  fetch('/resolution?value=' + val)";
-    html += "    .then(r => r.text())";
-    html += "    .then(msg => showMessage(msg, 'success'))";
-    html += "    .catch(err => showMessage('Error: ' + err, 'error'));";
-    html += "}";
-    html += "function changeQual(val) {";
-    html += "  fetch('/quality?value=' + val)";
-    html += "    .then(r => r.text())";
-    html += "    .then(msg => showMessage(msg, 'success'))";
-    html += "    .catch(err => showMessage('Error: ' + err, 'error'));";
-    html += "}";
-    html += "</script>";
-    html += "</div></body></html>";
-
-    return html;
 }

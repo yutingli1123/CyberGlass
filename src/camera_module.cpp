@@ -121,16 +121,16 @@ bool initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
   config.fb_location = CAMERA_FB_IN_PSRAM;  // Use PSRAM for frame buffer
 
-  // Set resolution - Default to VGA for better performance and compatibility
+  // Set resolution - Optimized for multi-shot capture (5 frames)
   if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA;   // 640x480 (optimized for speed)
-    config.jpeg_quality = 10;            // 0-63, lower number = higher quality (less compression)
-    config.fb_count = 2;                 // Frame buffers
-    config.grab_mode = CAMERA_GRAB_LATEST;  // Always get latest frame
+    config.frame_size = FRAMESIZE_VGA;   // 640x480 (good balance)
+    config.jpeg_quality = 15;            // Higher quality for better image clarity
+    config.fb_count = 5;                 // 5 buffers for 5-shot burst capture without blocking
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;  // Ensures all 5 frames are fresh
   } else {
     config.frame_size = FRAMESIZE_VGA;   // 640x480
-    config.jpeg_quality = 12;            // 0-63, lower number = higher quality (less compression)
-    config.fb_count = 1;
+    config.jpeg_quality = 15;            // Lower quality without PSRAM
+    config.fb_count = 1;                 // Single buffer when no PSRAM
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   }
 

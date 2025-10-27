@@ -1,5 +1,20 @@
 #include "wifi_provisioning.h"
 
+// BLE Server Callbacks for handling connections/disconnections
+class CyberGlassBLEServerCallbacks : public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+        Serial.println("BLE: Client connected");
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+        Serial.println("BLE: Client disconnected");
+        // Restart advertising so other devices can connect
+        delay(500); // Give some time for cleanup
+        BLEDevice::startAdvertising();
+        Serial.println("BLE: Advertising restarted");
+    }
+};
+
 // BLE Callback class for handling characteristic writes
 class WiFiProvisioningCallbacks : public BLECharacteristicCallbacks {
 private:
@@ -54,7 +69,9 @@ WiFiProvisioning::WiFiProvisioning() : apRunning(false), staConnected(false),
                                         wifiMode(WIFI_MODE_AP_ONLY),
                                         pServer(nullptr), pCharSSID(nullptr), pCharPassword(nullptr),
                                         pCharExtSSID(nullptr), pCharExtPassword(nullptr),
-                                        pCharWiFiStatus(nullptr), pCharSTAIP(nullptr), pCharWiFiMode(nullptr) {
+                                        pCharWiFiStatus(nullptr), pCharSTAIP(nullptr), pCharWiFiMode(nullptr),
+                                        pServerCallbacks(nullptr), pExtSSIDCallbacks(nullptr),
+                                        pExtPasswordCallbacks(nullptr), pWiFiModeCallbacks(nullptr) {
     // Generate device ID from MAC address
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -211,6 +228,10 @@ bool WiFiProvisioning::initBLE() {
     // Create BLE Server
     pServer = BLEDevice::createServer();
 
+    // Set server callbacks for connection/disconnection events
+    pServerCallbacks = new CyberGlassBLEServerCallbacks();
+    pServer->setCallbacks(pServerCallbacks);
+
     // Create BLE Service
     BLEService *pService = pServer->createService(BLE_SERVICE_UUID);
 
@@ -233,14 +254,16 @@ bool WiFiProvisioning::initBLE() {
         BLE_CHAR_EXT_SSID_UUID,
         BLECharacteristic::PROPERTY_WRITE
     );
-    pCharExtSSID->setCallbacks(new WiFiProvisioningCallbacks(this));
+    pExtSSIDCallbacks = new WiFiProvisioningCallbacks(this);
+    pCharExtSSID->setCallbacks(pExtSSIDCallbacks);
 
     // Create External Password Characteristic (Write) - For sending external WiFi password
     pCharExtPassword = pService->createCharacteristic(
         BLE_CHAR_EXT_PASSWORD_UUID,
         BLECharacteristic::PROPERTY_WRITE
     );
-    pCharExtPassword->setCallbacks(new WiFiProvisioningCallbacks(this));
+    pExtPasswordCallbacks = new WiFiProvisioningCallbacks(this);
+    pCharExtPassword->setCallbacks(pExtPasswordCallbacks);
 
     // Create WiFi Status Characteristic (Read/Notify) - Connection status
     pCharWiFiStatus = pService->createCharacteristic(
@@ -263,7 +286,8 @@ bool WiFiProvisioning::initBLE() {
         BLE_CHAR_WIFI_MODE_UUID,
         BLECharacteristic::PROPERTY_WRITE
     );
-    pCharWiFiMode->setCallbacks(new WiFiProvisioningCallbacks(this));
+    pWiFiModeCallbacks = new WiFiProvisioningCallbacks(this);
+    pCharWiFiMode->setCallbacks(pWiFiModeCallbacks);
 
     // Start service
     pService->start();
@@ -286,9 +310,22 @@ bool WiFiProvisioning::initBLE() {
 
 void WiFiProvisioning::stopBLE() {
     if (pServer) {
+        // Clean up callback objects to prevent memory leak
+        delete pServerCallbacks;
+        delete pExtSSIDCallbacks;
+        delete pExtPasswordCallbacks;
+        delete pWiFiModeCallbacks;
+
+        // Reset pointers
+        pServerCallbacks = nullptr;
+        pExtSSIDCallbacks = nullptr;
+        pExtPasswordCallbacks = nullptr;
+        pWiFiModeCallbacks = nullptr;
+
+        // Deinitialize BLE
         BLEDevice::deinit(true);
         pServer = nullptr;
-        Serial.println("BLE stopped");
+        Serial.println("BLE stopped and callbacks cleaned up");
     }
 }
 

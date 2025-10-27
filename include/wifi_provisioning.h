@@ -125,6 +125,12 @@ private:
     BLECharacteristic* pCharSTAIP;
     BLECharacteristic* pCharWiFiMode;
 
+    // BLE Callbacks (stored to prevent memory leak)
+    BLEServerCallbacks* pServerCallbacks;
+    BLECharacteristicCallbacks* pExtSSIDCallbacks;
+    BLECharacteristicCallbacks* pExtPasswordCallbacks;
+    BLECharacteristicCallbacks* pWiFiModeCallbacks;
+
     // Generate random password
     String generatePassword();
 

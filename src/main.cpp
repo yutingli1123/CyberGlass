@@ -2,6 +2,7 @@
 #include "camera_module.h"
 #include "wifi_provisioning.h"
 #include "web_server.h"
+#include "udp_stream.h"
 #include <ESPAsyncWebServer.h>
 
 #define LED_PIN 21  // Built-in LED pin for XIAO ESP32S3
@@ -9,7 +10,8 @@
 // Global instances
 WiFiProvisioning wifiAP;
 AsyncWebServer server(80);
-WebServerManager webServer(&server, &wifiAP);
+UDPStream udpStream;
+WebServerManager webServer(&server, &wifiAP, &udpStream);
 
 void setup() {
   Serial.begin(921600);         // Initialize serial communication at high speed
@@ -25,11 +27,13 @@ void setup() {
   wifiAP.loadExternalCredentials();
 
   // Check if external WiFi is configured and start in appropriate mode
+  bool wifiConnected = false;
   if (wifiAP.getExternalSSID().length() > 0 && wifiAP.getWiFiMode() != WIFI_MODE_AP_ONLY) {
     // Start in dual mode (AP + STA)
     Serial.println("External WiFi configured, starting in AP+STA mode...");
     if (wifiAP.initAPSTA()) {
       Serial.println("[" + getTimestamp() + "] WiFi AP+STA: READY");
+      wifiConnected = wifiAP.isConnectedToSTA();
     } else {
       Serial.println("[" + getTimestamp() + "] WARNING: WiFi initialization failed");
     }
@@ -42,11 +46,15 @@ void setup() {
     }
   }
 
-  // Initialize BLE for provisioning (with pairing security)
-  if (wifiAP.initBLE()) {
-    Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (Pairing required)");
+  // Initialize BLE only if WiFi STA is NOT connected (save resources)
+  if (!wifiConnected) {
+    if (wifiAP.initBLE()) {
+      Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (for WiFi setup)");
+    } else {
+      Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
+    }
   } else {
-    Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
+    Serial.println("[" + getTimestamp() + "] BLE: DISABLED (WiFi connected, saving resources)");
   }
 
   // Initialize camera module
@@ -66,6 +74,13 @@ void setup() {
   // Start mDNS for easy discovery
   wifiAP.startMDNS();
   Serial.println("[" + getTimestamp() + "] mDNS: READY");
+
+  // Start UDP stream
+  if (udpStream.begin()) {
+    Serial.println("[" + getTimestamp() + "] UDP Stream: READY");
+  } else {
+    Serial.println("[" + getTimestamp() + "] WARNING: UDP stream initialization failed");
+  }
 
   // Print connection information
   Serial.println("\n========================================");
@@ -89,20 +104,26 @@ void setup() {
   Serial.println("\nNote: BLE is open for initial setup (within range ~10m)");
   Serial.println("Security enforced via WiFi network isolation");
 
-  Serial.println("\nWeb Interface:");
+  Serial.println("\nAPI Endpoints:");
   Serial.println("  AP Mode: http://" + wifiAP.getAPIP().toString());
   if (wifiAP.isConnectedToSTA()) {
     Serial.println("  STA Mode: http://" + wifiAP.getSTAIP().toString());
     Serial.println("  mDNS: http://" + wifiAP.getMDNSHostname());
   }
 
-  Serial.println("\nType 'help' or 'h' for serial camera commands");
+  Serial.println("\nUDP Video Stream:");
+  Serial.println("  Protocol: UDP Port 5000");
+  Serial.println("  Use HTTP endpoint /stream/start to begin streaming");
+  Serial.println("  Frame format: Custom binary protocol");
+  Serial.println("  Features: Low latency, high FPS, no disconnection");
+
   Serial.println("========================================\n");
 }
 
 void loop() {
-  // Process camera commands from serial port
-  processCameraCommand();
-  // Small delay to prevent excessive CPU usage
-  delay(10);
+  // Send UDP video stream
+  udpStream.sendFrame();
+
+  // Yield to WiFi tasks
+  yield();
 }
