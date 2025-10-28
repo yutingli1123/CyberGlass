@@ -114,24 +114,24 @@ bool initCamera() {
   config.pin_pclk = PCLK_GPIO_NUM;
   config.pin_vsync = VSYNC_GPIO_NUM;
   config.pin_href = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM;
-  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.pixel_format = PIXFORMAT_JPEG;
   config.fb_location = CAMERA_FB_IN_PSRAM;  // Use PSRAM for frame buffer
 
-  // Set resolution - Optimized for multi-shot capture (5 frames)
+  // Set resolution - Optimized for fast capture with latest frame
   if (psramFound()) {
     config.frame_size = FRAMESIZE_VGA;   // 640x480 (good balance)
     config.jpeg_quality = 15;            // Higher quality for better image clarity
-    config.fb_count = 5;                 // 5 buffers for 5-shot burst capture without blocking
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;  // Ensures all 5 frames are fresh
+    config.fb_count = 1;                 // Single buffer for minimal latency
+    config.grab_mode = CAMERA_GRAB_LATEST;  // Always get latest frame immediately
   } else {
     config.frame_size = FRAMESIZE_VGA;   // 640x480
     config.jpeg_quality = 15;            // Lower quality without PSRAM
     config.fb_count = 1;                 // Single buffer when no PSRAM
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.grab_mode = CAMERA_GRAB_LATEST;
   }
 
   // Try different XCLK frequencies for better compatibility

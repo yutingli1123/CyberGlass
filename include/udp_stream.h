@@ -36,9 +36,6 @@ public:
     // Send frame (call in main loop)
     void sendFrame();
 
-    // Set frame rate
-    void setFrameRate(uint8_t fps);
-
     // Get statistics
     uint32_t getFramesSent();
     uint64_t getBytesSent();
@@ -47,14 +44,9 @@ private:
     WiFiUDP udp;
     IPAddress clientIP;
     uint16_t clientPort;
+    uint16_t localPort;  // Dynamic local port
 
     uint32_t frameNumber;
-    uint32_t framesSent;
-    uint64_t bytesSent;
-
-    uint8_t frameRate;
-    unsigned long frameInterval;
-    unsigned long lastFrameTime;
 
     bool streaming;
     bool initialized;
