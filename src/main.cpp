@@ -74,8 +74,6 @@ void setup() {
     Serial.println("[" + getTimestamp() + "] WARNING: MDNS initialization failed");
   }
 
-  Serial.println("[" + getTimestamp() + "] mDNS: READY");
-
   // Print connection information
   Serial.println("\n========================================");
   Serial.println("WiFi Credentials (also available via BLE):");
