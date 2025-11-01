@@ -15,6 +15,6 @@
  * @param data Pointer to binary data
  * @param length Length of data in bytes
  */
-void sendBase64(const uint8_t* data, size_t length);
+void sendBase64(const uint8_t *data, size_t length);
 
 #endif // BASE64_ENCODER_H
