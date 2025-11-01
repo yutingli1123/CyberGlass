@@ -11,8 +11,7 @@ AsyncWebServer server(80);
 UDPStream udpStream;
 WebServerManager webServer(&server, &wifiAP, &udpStream);
 
-void setup()
-{
+void setup() {
   Serial.begin(115200); // Initialize serial communication
   delay(1000);
 
@@ -27,57 +26,39 @@ void setup()
 
   // Check if external WiFi is configured and start in appropriate mode
   bool wifiConnected = false;
-  if (wifiAP.getExternalSSID().length() > 0 && wifiAP.getWiFiMode() != WIFI_MODE_AP_ONLY)
-  {
+  if (wifiAP.getExternalSSID().length() > 0 && wifiAP.getWiFiMode() != WIFI_MODE_AP_ONLY) {
     // Start in dual mode (AP + STA)
     Serial.println("External WiFi configured, starting in AP+STA mode...");
-    if (wifiAP.initAPSTA())
-    {
+    if (wifiAP.initAPSTA()) {
       Serial.println("[" + getTimestamp() + "] WiFi AP+STA: READY");
       wifiConnected = wifiAP.isConnectedToSTA();
-    }
-    else
-    {
+    } else {
       Serial.println("[" + getTimestamp() + "] WARNING: WiFi initialization failed");
     }
-  }
-  else
-  {
+  } else {
     // Start in AP-only mode (default)
-    if (wifiAP.initAP())
-    {
+    if (wifiAP.initAP()) {
       Serial.println("[" + getTimestamp() + "] WiFi AP: READY");
-    }
-    else
-    {
+    } else {
       Serial.println("[" + getTimestamp() + "] WARNING: WiFi AP initialization failed");
     }
   }
 
   // Initialize BLE only if WiFi STA is NOT connected (save resources)
-  if (!wifiConnected)
-  {
-    if (wifiAP.initBLE())
-    {
+  if (!wifiConnected) {
+    if (wifiAP.initBLE()) {
       Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (for WiFi setup)");
-    }
-    else
-    {
+    } else {
       Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
     }
-  }
-  else
-  {
+  } else {
     Serial.println("[" + getTimestamp() + "] BLE: DISABLED (WiFi connected, saving resources)");
   }
 
   // Initialize camera module
-  if (initCamera())
-  {
+  if (initCamera()) {
     Serial.println("[" + getTimestamp() + "] Camera module: READY");
-  }
-  else
-  {
+  } else {
     Serial.println("[" + getTimestamp() + "] WARNING: Camera initialization failed");
   }
 
@@ -93,12 +74,9 @@ void setup()
   Serial.println("[" + getTimestamp() + "] mDNS: READY");
 
   // Start UDP stream
-  if (udpStream.begin())
-  {
+  if (udpStream.begin()) {
     Serial.println("[" + getTimestamp() + "] UDP Stream: READY");
-  }
-  else
-  {
+  } else {
     Serial.println("[" + getTimestamp() + "] WARNING: UDP stream initialization failed");
   }
 
@@ -109,8 +87,7 @@ void setup()
   Serial.println("  AP Password: " + wifiAP.getPassword());
   Serial.println("  Device ID: " + wifiAP.getDeviceID());
 
-  if (wifiAP.isConnectedToSTA())
-  {
+  if (wifiAP.isConnectedToSTA()) {
     Serial.println("\nStation Mode:");
     Serial.println("  Status: Connected to " + wifiAP.getExternalSSID());
     Serial.println("  STA IP: " + wifiAP.getSTAIP().toString());
@@ -127,8 +104,7 @@ void setup()
 
   Serial.println("\nAPI Endpoints:");
   Serial.println("  AP Mode: http://" + wifiAP.getAPIP().toString());
-  if (wifiAP.isConnectedToSTA())
-  {
+  if (wifiAP.isConnectedToSTA()) {
     Serial.println("  STA Mode: http://" + wifiAP.getSTAIP().toString());
     Serial.println("  mDNS: http://" + wifiAP.getMDNSHostname());
   }
@@ -142,8 +118,7 @@ void setup()
   Serial.println("========================================\n");
 }
 
-void loop()
-{
+void loop() {
   // Frame rate control: Target 20 FPS (50ms interval)
   static unsigned long lastFrameTime = 0;
   unsigned long now = millis();

@@ -3,7 +3,7 @@
  * @brief Camera module interface for XIAO ESP32S3 Sense
  * @author CyberGlass Project
  * @date 2025-10-04
- * 
+ *
  * This module provides camera functionality with serial command interface
  * and timestamp support for photo capture operations.
  */

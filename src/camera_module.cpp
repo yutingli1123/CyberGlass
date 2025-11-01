@@ -3,7 +3,7 @@
  * @brief Camera module implementation for XIAO ESP32S3 Sense
  * @author CyberGlass Project
  * @date 2025-10-04
- * 
+ *
  * Supported cameras:
  * - OV2640 (mjy20ff-f3 tl 2409) - Built-in camera
  * - OV5640 (UICPAL2102AYJ24716853) - External high-resolution camera
@@ -13,23 +13,23 @@
 #include "esp_camera.h"
 
 // XIAO ESP32S3 Sense camera pin configuration
-#define PWDN_GPIO_NUM     -1
-#define RESET_GPIO_NUM    -1
-#define XCLK_GPIO_NUM     10
-#define SIOD_GPIO_NUM     40
-#define SIOC_GPIO_NUM     39
+#define PWDN_GPIO_NUM -1
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 10
+#define SIOD_GPIO_NUM 40
+#define SIOC_GPIO_NUM 39
 
-#define Y9_GPIO_NUM       48
-#define Y8_GPIO_NUM       11
-#define Y7_GPIO_NUM       12
-#define Y6_GPIO_NUM       14
-#define Y5_GPIO_NUM       16
-#define Y4_GPIO_NUM       18
-#define Y3_GPIO_NUM       17
-#define Y2_GPIO_NUM       15
-#define VSYNC_GPIO_NUM    38
-#define HREF_GPIO_NUM     47
-#define PCLK_GPIO_NUM     13
+#define Y9_GPIO_NUM 48
+#define Y8_GPIO_NUM 11
+#define Y7_GPIO_NUM 12
+#define Y6_GPIO_NUM 14
+#define Y5_GPIO_NUM 16
+#define Y4_GPIO_NUM 18
+#define Y3_GPIO_NUM 17
+#define Y2_GPIO_NUM 15
+#define VSYNC_GPIO_NUM 38
+#define HREF_GPIO_NUM 47
+#define PCLK_GPIO_NUM 13
 
 // Internal state variables
 static bool cameraInitialized = false;
@@ -46,11 +46,16 @@ static bool isStreaming = false; // Video streaming mode flag
  */
 String getCameraModelName(camera_model_t model) {
   switch (model) {
-    case CAMERA_OV2640: return "OV2640 (mjy20ff-f3)";
-    case CAMERA_OV5640: return "OV5640 (UICPAL2102)";
-    case CAMERA_OV3660: return "OV3660";
-    case CAMERA_OV7725: return "OV7725";
-    default: return "Unknown";
+    case CAMERA_OV2640:
+      return "OV2640 (mjy20ff-f3)";
+    case CAMERA_OV5640:
+      return "OV5640 (UICPAL2102)";
+    case CAMERA_OV3660:
+      return "OV3660";
+    case CAMERA_OV7725:
+      return "OV7725";
+    default:
+      return "Unknown";
   }
 }
 
@@ -136,7 +141,7 @@ bool initCamera() {
 
   // Try different XCLK frequencies for better compatibility
   // OV5640 typically works with 10-20MHz, OV2640 with 20MHz
-  constexpr uint32_t xclk_freqs[] = {20000000, 16000000, 10000000, 8000000};
+  const uint32_t xclk_freqs[] = {20000000, 16000000, 10000000, 8000000};
   const char *freq_names[] = {"20MHz", "16MHz", "10MHz", "8MHz"};
   esp_err_t err = ESP_FAIL;
 
@@ -274,20 +279,34 @@ bool initCamera() {
  */
 String getResolutionName(framesize_t frameSize) {
   switch (frameSize) {
-    case FRAMESIZE_QQVGA: return "QQVGA (160x120)";
-    case FRAMESIZE_QCIF: return "QCIF (176x144)";
-    case FRAMESIZE_HQVGA: return "HQVGA (240x176)";
-    case FRAMESIZE_QVGA: return "QVGA (320x240)";
-    case FRAMESIZE_CIF: return "CIF (400x296)";
-    case FRAMESIZE_VGA: return "VGA (640x480)";
-    case FRAMESIZE_SVGA: return "SVGA (800x600)";
-    case FRAMESIZE_XGA: return "XGA (1024x768)";
-    case FRAMESIZE_SXGA: return "SXGA (1280x1024)";
-    case FRAMESIZE_UXGA: return "UXGA (1600x1200)";
-    case FRAMESIZE_HD: return "HD (1280x720)";
-    case FRAMESIZE_FHD: return "FHD (1920x1080)";
-    case FRAMESIZE_QXGA: return "QXGA (2048x1536)";
-    default: return "Unknown";
+    case FRAMESIZE_QQVGA:
+      return "QQVGA (160x120)";
+    case FRAMESIZE_QCIF:
+      return "QCIF (176x144)";
+    case FRAMESIZE_HQVGA:
+      return "HQVGA (240x176)";
+    case FRAMESIZE_QVGA:
+      return "QVGA (320x240)";
+    case FRAMESIZE_CIF:
+      return "CIF (400x296)";
+    case FRAMESIZE_VGA:
+      return "VGA (640x480)";
+    case FRAMESIZE_SVGA:
+      return "SVGA (800x600)";
+    case FRAMESIZE_XGA:
+      return "XGA (1024x768)";
+    case FRAMESIZE_SXGA:
+      return "SXGA (1280x1024)";
+    case FRAMESIZE_UXGA:
+      return "UXGA (1600x1200)";
+    case FRAMESIZE_HD:
+      return "HD (1280x720)";
+    case FRAMESIZE_FHD:
+      return "FHD (1920x1080)";
+    case FRAMESIZE_QXGA:
+      return "QXGA (2048x1536)";
+    default:
+      return "Unknown";
   }
 }
 
@@ -637,8 +656,7 @@ void processCameraCommand() {
           }
         } else if (command == "status" || command == "s") {
           Serial.println("\n=== Camera Status ===");
-          Serial.println("[" + getTimestamp() + "] Camera initialized: " +
-                         String(cameraInitialized ? "YES" : "NO"));
+          Serial.println("[" + getTimestamp() + "] Camera initialized: " + String(cameraInitialized ? "YES" : "NO"));
           if (cameraInitialized) {
             Serial.println("[" + getTimestamp() + "] Camera model: " + getCameraModelName(detectedCamera));
             // Get current resolution
@@ -651,8 +669,7 @@ void processCameraCommand() {
             Serial.println("[" + getTimestamp() + "] Hint: Try 'init' command to retry");
           }
           Serial.println("[" + getTimestamp() + "] Total photos taken: " + String(photoCount));
-          Serial.println("[" + getTimestamp() + "] PSRAM available: " +
-                         String(psramFound() ? "YES" : "NO"));
+          Serial.println("[" + getTimestamp() + "] PSRAM available: " + String(psramFound() ? "YES" : "NO"));
           Serial.println("[" + getTimestamp() + "] Free heap: " + String(ESP.getFreeHeap()) + " bytes");
           if (psramFound()) {
             Serial.println("[" + getTimestamp() + "] Free PSRAM: " + String(ESP.getFreePsram()) + " bytes");
