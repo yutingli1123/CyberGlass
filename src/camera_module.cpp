@@ -13,8 +13,8 @@
 #include "esp_camera.h"
 
 // XIAO ESP32S3 Sense camera pin configuration
-#define PWDN_GPIO_NUM -1
-#define RESET_GPIO_NUM -1
+#define PWDN_GPIO_NUM (-1)
+#define RESET_GPIO_NUM (-1)
 #define XCLK_GPIO_NUM 10
 #define SIOD_GPIO_NUM 40
 #define SIOC_GPIO_NUM 39
@@ -37,14 +37,13 @@ static uint32_t photoCount = 0;
 static camera_model_t detectedCamera = CAMERA_NONE;
 static String inputBuffer = ""; // Buffer for serial input
 static String lastInitError = ""; // Store last initialization error
-static bool isStreaming = false; // Video streaming mode flag
 
 /**
  * @brief Get camera model name string
  * @param model Camera model
  * @return Camera model name
  */
-String getCameraModelName(camera_model_t model) {
+String getCameraModelName(const camera_model_t model) {
   switch (model) {
     case CAMERA_OV2640:
       return "OV2640 (mjy20ff-f3)";
@@ -76,7 +75,7 @@ String getTimestamp() {
 
   char buffer[16];
   sprintf(buffer, "%02lu:%02lu:%02lu.%03lu", hours, minutes, seconds, ms);
-  return String(buffer);
+  return {buffer};
 }
 
 /**
@@ -127,43 +126,24 @@ bool initCamera() {
   config.fb_location = CAMERA_FB_IN_PSRAM; // Use PSRAM for frame buffer
 
   // Set resolution - Optimized for fast capture with latest frame
-  if (psramFound()) {
-    config.frame_size = FRAMESIZE_VGA; // 640x480 (good balance)
-    config.jpeg_quality = 15; // Higher quality for better image clarity
-    config.fb_count = 1; // Single buffer for minimal latency
-    config.grab_mode = CAMERA_GRAB_LATEST; // Always get latest frame immediately
-  } else {
-    config.frame_size = FRAMESIZE_VGA; // 640x480
-    config.jpeg_quality = 15; // Lower quality without PSRAM
-    config.fb_count = 1; // Single buffer when no PSRAM
-    config.grab_mode = CAMERA_GRAB_LATEST;
-  }
+  config.frame_size = FRAMESIZE_VGA; // 640x480 (good balance)
+  config.jpeg_quality = 15; // Higher quality for better image clarity
+  config.fb_count = 1; // Single buffer for minimal latency
+  config.grab_mode = CAMERA_GRAB_LATEST; // Always get latest frame immediately
 
-  // Try different XCLK frequencies for better compatibility
-  // OV5640 typically works with 10-20MHz, OV2640 with 20MHz
-  const uint32_t xclk_freqs[] = {20000000, 16000000, 10000000, 8000000};
-  const char *freq_names[] = {"20MHz", "16MHz", "10MHz", "8MHz"};
   esp_err_t err = ESP_FAIL;
 
-  for (int i = 0; i < 4; i++) {
-    config.xclk_freq_hz = xclk_freqs[i];
-    Serial.printf("[%s] Trying XCLK frequency: %s\n", getTimestamp().c_str(), freq_names[i]);
+  config.xclk_freq_hz = 20000000;
+  err = esp_camera_init(&config);
 
-    err = esp_camera_init(&config);
-
-    if (err == ESP_OK) {
-      Serial.printf("[%s] Camera initialized successfully with %s\n", getTimestamp().c_str(), freq_names[i]);
-      break;
-    } else if (err == ESP_ERR_NOT_FOUND) {
-      Serial.printf("[%s] Camera not found (0x105) with %s\n", getTimestamp().c_str(), freq_names[i]);
-      // Deinit before retry
-      esp_camera_deinit();
-      delay(100);
-    } else {
-      Serial.printf("[%s] Init failed with error 0x%X at %s\n", getTimestamp().c_str(), err, freq_names[i]);
-      esp_camera_deinit();
-      delay(100);
-    }
+  if (err == ESP_OK) {
+    Serial.printf("[%s] Camera initialized successfully \n", getTimestamp().c_str());
+  } else if (err == ESP_ERR_NOT_FOUND) {
+    Serial.printf("[%s] Camera not found (0x105) \n", getTimestamp().c_str());
+    esp_camera_deinit();
+  } else {
+    Serial.printf("[%s] Init failed with error 0x%X \n", getTimestamp().c_str(), err);
+    esp_camera_deinit();
   }
 
   if (err != ESP_OK) {
@@ -181,9 +161,9 @@ bool initCamera() {
 
   // Get camera sensor for additional configuration
   sensor_t *s = esp_camera_sensor_get();
-  if (s != NULL) {
+  if (s != nullptr) {
     // Detect camera model by PID
-    uint16_t pid = s->id.PID;
+    const uint16_t pid = s->id.PID;
 
     // Identify camera model
     if (pid == OV2640_PID) {
@@ -218,7 +198,7 @@ bool initCamera() {
       s->set_aec_value(s, 300); // 0 to 1200
       s->set_gain_ctrl(s, 1); // Enable AGC
       s->set_agc_gain(s, 0); // 0 to 30
-      s->set_gainceiling(s, (gainceiling_t) 0); // 0 to 6
+      s->set_gainceiling(s, static_cast<gainceiling_t>(0)); // 0 to 6
       s->set_bpc(s, 0); // Black pixel correction
       s->set_wpc(s, 1); // White pixel correction
       s->set_raw_gma(s, 1); // Enable gamma correction
@@ -244,7 +224,7 @@ bool initCamera() {
       s->set_aec_value(s, 300); // 0 to 1200
       s->set_gain_ctrl(s, 1); // Enable AGC
       s->set_agc_gain(s, 0); // 0 to 30
-      s->set_gainceiling(s, (gainceiling_t) 0); // 0 to 6
+      s->set_gainceiling(s, static_cast<gainceiling_t>(0)); // 0 to 6
       s->set_bpc(s, 1); // Black pixel correction
       s->set_wpc(s, 1); // White pixel correction
       s->set_raw_gma(s, 1); // Enable gamma correction
@@ -277,7 +257,7 @@ bool initCamera() {
  * @param frameSize Frame size
  * @return Resolution name with dimensions
  */
-String getResolutionName(framesize_t frameSize) {
+String getResolutionName(const framesize_t frameSize) {
   switch (frameSize) {
     case FRAMESIZE_QQVGA:
       return "QQVGA (160x120)";
@@ -315,7 +295,7 @@ String getResolutionName(framesize_t frameSize) {
  * @param frameSize Target frame size
  * @return true if successful, false otherwise
  */
-bool changeResolution(framesize_t frameSize) {
+bool changeResolution(const framesize_t frameSize) {
   if (!cameraInitialized) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
     return false;
@@ -326,14 +306,14 @@ bool changeResolution(framesize_t frameSize) {
 
   // Get camera sensor
   sensor_t *s = esp_camera_sensor_get();
-  if (s == NULL) {
+  if (s == nullptr) {
     Serial.println("[" + getTimestamp() + "] ERROR: Failed to get camera sensor");
     return false;
   }
 
   // Check if resolution is supported
   // Note: Some resolutions require PSRAM
-  bool requiresPSRAM = (frameSize >= FRAMESIZE_SXGA);
+  const bool requiresPSRAM = frameSize >= FRAMESIZE_SXGA;
   if (requiresPSRAM && !psramFound()) {
     Serial.println("[" + getTimestamp() + "] ERROR: This resolution requires PSRAM");
     Serial.println("[" + getTimestamp() + "] Available resolutions without PSRAM:");
@@ -362,7 +342,7 @@ bool changeResolution(framesize_t frameSize) {
  * @param quality JPEG quality (0-63)
  * @return true if successful, false otherwise
  */
-bool changeQuality(int quality) {
+bool changeQuality(const int quality) {
   if (!cameraInitialized) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
     return false;
@@ -379,7 +359,7 @@ bool changeQuality(int quality) {
 
   // Get camera sensor
   sensor_t *s = esp_camera_sensor_get();
-  if (s == NULL) {
+  if (s == nullptr) {
     Serial.println("[" + getTimestamp() + "] ERROR: Failed to get camera sensor");
     return false;
   }
@@ -440,101 +420,6 @@ bool capturePhoto() {
   return true;
 }
 
-
-/**
- * @brief Start video streaming mode with binary transfer (faster)
- */
-void startBinaryVideoStream() {
-  if (!cameraInitialized) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
-    return;
-  }
-
-  Serial.println("\n=== Binary Video Streaming Mode ===");
-  Serial.println("[" + getTimestamp() + "] Starting binary video stream...");
-  Serial.println("[" + getTimestamp() + "] Send 'stop' command to exit");
-  Serial.println("==============================\n");
-
-  isStreaming = true;
-  unsigned long frameCount = 0;
-  unsigned long totalBytes = 0;
-  unsigned long streamStart = millis();
-
-  // Small delay to let Python script prepare
-  delay(500);
-
-  while (isStreaming) {
-    // Check for stop command (non-blocking)
-    if (Serial.available() > 0) {
-      String cmd = Serial.readStringUntil('\n');
-      cmd.trim();
-      cmd.toLowerCase();
-      if (cmd == "stop") {
-        isStreaming = false;
-        break;
-      }
-    }
-
-    // Get frame from buffer
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-      // Send error marker
-      Serial.write(0xFF);
-      Serial.write(0xFF);
-      Serial.write(0xFF);
-      Serial.write(0xFF);
-      delay(100);
-      continue;
-    }
-
-    frameCount++;
-    totalBytes += fb->len;
-
-    // Send frame in binary format:
-    // [MARKER: 4 bytes 0xC0 0x1D 0xF1 0x8E - "COLD FIRE"]
-    // [SIZE: 4 bytes, little-endian]
-    // [DATA: SIZE bytes]
-    Serial.write(0xC0);
-    Serial.write(0x1D);
-    Serial.write(0xF1);
-    Serial.write(0x8E);
-
-    // Send size (32-bit little-endian)
-    Serial.write((uint8_t) (fb->len & 0xFF));
-    Serial.write((uint8_t) ((fb->len >> 8) & 0xFF));
-    Serial.write((uint8_t) ((fb->len >> 16) & 0xFF));
-    Serial.write((uint8_t) ((fb->len >> 24) & 0xFF));
-
-    // Send JPEG data
-    Serial.write(fb->buf, fb->len);
-    Serial.flush();
-
-    // Release frame buffer
-    esp_camera_fb_return(fb);
-
-    // Small delay for stability
-    delay(30); // ~33 FPS max
-  }
-
-  // Send end marker
-  Serial.write(0xFF);
-  Serial.write(0xFF);
-  Serial.write(0xFF);
-  Serial.write(0xFF);
-  Serial.flush();
-
-  // Print streaming statistics
-  unsigned long streamDuration = millis() - streamStart;
-  Serial.println("\n=== Streaming Statistics ===");
-  Serial.printf("[%s] Total frames: %lu\n", getTimestamp().c_str(), frameCount);
-  Serial.printf("[%s] Total data: %.2f MB\n", getTimestamp().c_str(), totalBytes / 1048576.0);
-  Serial.printf("[%s] Duration: %.1f seconds\n", getTimestamp().c_str(), streamDuration / 1000.0);
-  if (streamDuration > 0) {
-    Serial.printf("[%s] Average FPS: %.2f\n", getTimestamp().c_str(), frameCount * 1000.0 / streamDuration);
-  }
-  Serial.println("============================\n");
-}
-
 /**
  * @brief Capture a photo and send via serial in binary format
  * @return true if successful, false otherwise
@@ -569,7 +454,7 @@ bool captureAndSendBinary() {
   // Send photo data in binary format
   Serial.println("[" + getTimestamp() + "] Sending photo data in binary format...");
 
-  unsigned long transfer_start = millis();
+  const unsigned long transfer_start = millis();
 
   // Send frame in binary format:
   // [MARKER: 4 bytes 0xC0 0x1D 0xF1 0x8E - "COLD FIRE"]
@@ -581,22 +466,22 @@ bool captureAndSendBinary() {
   Serial.write(0x8E);
 
   // Send size (32-bit little-endian)
-  Serial.write((uint8_t) (fb->len & 0xFF));
-  Serial.write((uint8_t) ((fb->len >> 8) & 0xFF));
-  Serial.write((uint8_t) ((fb->len >> 16) & 0xFF));
-  Serial.write((uint8_t) ((fb->len >> 24) & 0xFF));
+  Serial.write(static_cast<uint8_t>(fb->len & 0xFF));
+  Serial.write(static_cast<uint8_t>(fb->len >> 8 & 0xFF));
+  Serial.write(static_cast<uint8_t>(fb->len >> 16 & 0xFF));
+  Serial.write(static_cast<uint8_t>(fb->len >> 24 & 0xFF));
 
   // Send JPEG data
   Serial.write(fb->buf, fb->len);
   Serial.flush();
 
-  unsigned long transfer_end = millis();
-  unsigned long transfer_time = transfer_end - transfer_start;
+  const unsigned long transfer_end = millis();
+  const unsigned long transfer_time = transfer_end - transfer_start;
 
   Serial.printf("[%s] Photo transmission: COMPLETE\n", getTimestamp().c_str());
   Serial.printf("[%s] Performance Summary:\n", getTimestamp().c_str());
   Serial.printf("  - Transfer time: %lu ms\n", transfer_time);
-  Serial.printf("  - Transfer speed: %.2f KB/s\n", (fb->len / 1024.0) / (transfer_time / 1000.0));
+  Serial.printf("  - Transfer speed: %.2f KB/s\n", fb->len / 1024.0 / (transfer_time / 1000.0));
   Serial.printf("  - Note: Frame retrieved from continuous buffer (0ms retrieval)\n");
   // Release frame buffer
   esp_camera_fb_return(fb);
@@ -612,7 +497,7 @@ bool captureAndSendBinary() {
 void processCameraCommand() {
   // Read incoming serial data character by character
   while (Serial.available() > 0) {
-    char inChar = (char) Serial.read();
+    const char inChar = static_cast<char>(Serial.read());
 
     // Check for newline character (Enter key)
     if (inChar == '\n' || inChar == '\r') {
@@ -645,23 +530,14 @@ void processCameraCommand() {
           capturePhoto();
         } else if (command == "send" || command == "d") {
           captureAndSendBinary();
-        } else if (command == "stream") {
-          startBinaryVideoStream();
-        } else if (command == "stop") {
-          if (isStreaming) {
-            isStreaming = false;
-            Serial.println("[" + getTimestamp() + "] Stopping video stream...");
-          } else {
-            Serial.println("[" + getTimestamp() + "] No active stream to stop");
-          }
         } else if (command == "status" || command == "s") {
           Serial.println("\n=== Camera Status ===");
           Serial.println("[" + getTimestamp() + "] Camera initialized: " + String(cameraInitialized ? "YES" : "NO"));
           if (cameraInitialized) {
             Serial.println("[" + getTimestamp() + "] Camera model: " + getCameraModelName(detectedCamera));
             // Get current resolution
-            sensor_t *s = esp_camera_sensor_get();
-            if (s != NULL) {
+            const sensor_t *s = esp_camera_sensor_get();
+            if (s != nullptr) {
               Serial.println("[" + getTimestamp() + "] Current resolution: " + getResolutionName(s->status.framesize));
             }
           } else if (lastInitError.length() > 0) {
@@ -758,8 +634,6 @@ void processCameraCommand() {
           Serial.println("  init       (i) - (Re)initialize camera module");
           Serial.println("  capture    (c) - Capture a photo and display info");
           Serial.println("  send       (d) - Capture and send photo (binary)");
-          Serial.println("  stream         - Start video streaming (binary)");
-          Serial.println("  stop           - Stop video streaming");
           Serial.println("  resolution (r) - Change camera resolution");
           Serial.println("  quality    (q) - Change JPEG quality (0-63)");
           Serial.println("  status     (s) - Show camera status");
@@ -769,7 +643,7 @@ void processCameraCommand() {
         // Handle quality setting (if it's a number between 0-63)
         else {
           // Try to parse as quality number
-          int quality = command.toInt();
+          const int quality = command.toInt();
           if (quality >= 0 && quality <= 63 && (command == "0" || quality > 0)) {
             changeQuality(quality);
           } else {

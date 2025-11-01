@@ -2,14 +2,12 @@
 #include "camera_module.h"
 #include "wifi_provisioning.h"
 #include "web_server.h"
-#include "udp_stream.h"
 #include <ESPAsyncWebServer.h>
 
 // Global instances
 WiFiProvisioning wifiAP;
 AsyncWebServer server(80);
-UDPStream udpStream;
-WebServerManager webServer(&server, &wifiAP, &udpStream);
+WebServerManager webServer(&server, &wifiAP);
 
 void setup() {
   Serial.begin(115200); // Initialize serial communication
@@ -73,13 +71,6 @@ void setup() {
   wifiAP.startMDNS();
   Serial.println("[" + getTimestamp() + "] mDNS: READY");
 
-  // Start UDP stream
-  if (udpStream.begin()) {
-    Serial.println("[" + getTimestamp() + "] UDP Stream: READY");
-  } else {
-    Serial.println("[" + getTimestamp() + "] WARNING: UDP stream initialization failed");
-  }
-
   // Print connection information
   Serial.println("\n========================================");
   Serial.println("WiFi Credentials (also available via BLE):");
@@ -109,29 +100,10 @@ void setup() {
     Serial.println("  mDNS: http://" + wifiAP.getMDNSHostname());
   }
 
-  Serial.println("\nUDP Video Stream:");
-  Serial.println("  Protocol: UDP Port 5000");
-  Serial.println("  Use HTTP endpoint /stream/start to begin streaming");
-  Serial.println("  Frame format: Custom binary protocol");
-  Serial.println("  Features: Low latency, high FPS, no disconnection");
-
   Serial.println("========================================\n");
 }
 
 void loop() {
-  // Frame rate control: Target 20 FPS (50ms interval)
-  static unsigned long lastFrameTime = 0;
-  unsigned long now = millis();
-
-  if (now - lastFrameTime >= 50) {
-    lastFrameTime = now;
-
-    if (udpStream.isStreaming()) {
-      // Send UDP video stream
-      udpStream.sendFrame();
-    }
-  }
-
   // Yield to WiFi tasks
   yield();
 }

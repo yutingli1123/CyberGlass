@@ -1,7 +1,7 @@
 #include "web_server.h"
 
-WebServerManager::WebServerManager(AsyncWebServer *serverPtr, WiFiProvisioning *wifiPtr, UDPStream *udpPtr) :
-    server(serverPtr), wifi(wifiPtr), udpStream(udpPtr), lastCaptureTime(0) {
+WebServerManager::WebServerManager(AsyncWebServer *serverPtr, WiFiProvisioning *wifiPtr) :
+    server(serverPtr), wifi(wifiPtr), lastCaptureTime(0) {
   Serial.println("Web server manager initialized");
 }
 
@@ -9,25 +9,17 @@ void WebServerManager::setupRoutes() {
   // Capture single photo (JPEG)
   server->on("/capture", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleCapture(request); });
 
-  // Start UDP video stream
-  server->on("/stream/start", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleStart(request); });
-
-  // Stop UDP video stream
-  server->on("/stream/stop", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleStop(request); });
-
   // Change resolution
-  server->on("/resolution", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleResolution(request); });
+  server->on("/resolution", HTTP_GET, [](AsyncWebServerRequest *request) { handleResolution(request); });
 
   // Change quality
-  server->on("/quality", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleQuality(request); });
+  server->on("/quality", HTTP_GET, [](AsyncWebServerRequest *request) { handleQuality(request); });
 
   // Status endpoint (JSON)
   server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleStatus(request); });
 
   Serial.println("API endpoints configured:");
   Serial.println("  GET /capture - Capture single photo");
-  Serial.println("  GET /stream/start - Start UDP video stream");
-  Serial.println("  GET /stream/stop - Stop UDP video stream");
   Serial.println("  GET /resolution?value=<res> - Change resolution");
   Serial.println("  GET /quality?value=<num> - Change quality");
   Serial.println("  GET /status - Get device status (JSON)");
@@ -35,14 +27,14 @@ void WebServerManager::setupRoutes() {
 
 void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
   // Rate limiting: prevent concurrent requests that could exhaust frame buffers
-  unsigned long now = millis();
+  const unsigned long now = millis();
   if (now - lastCaptureTime < MIN_CAPTURE_INTERVAL) {
     request->send(429, "text/plain", "Too many requests");
     return;
   }
 
   // Check PSRAM availability before burst capture
-  size_t freePsram = ESP.getFreePsram();
+  const size_t freePsram = ESP.getFreePsram();
   if (freePsram < MIN_FREE_PSRAM * 2) {
     Serial.printf("Capture: Insufficient PSRAM - %d bytes free\n", freePsram);
     request->send(503, "text/plain", "Low memory");
@@ -51,7 +43,7 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
 
   lastCaptureTime = now;
 
-  const int NUM_SHOTS = 5;
+  constexpr int NUM_SHOTS = 5;
   Serial.println("Capture: Starting 5-shot burst...");
 
   // Discard stale frame from buffer
@@ -72,9 +64,9 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
     // Feed watchdog to prevent timeout during long capture
     yield(); // Let other tasks run
 
-    unsigned long capture_start = millis();
+    const unsigned long capture_start = millis();
     camera_fb_t *fb = esp_camera_fb_get();
-    unsigned long capture_time = millis() - capture_start;
+    const unsigned long capture_time = millis() - capture_start;
 
     if (!fb) {
       Serial.printf("Capture: [Shot %d/%d] FAILED - fb=null (took %lu ms)\n", i + 1, NUM_SHOTS, capture_time);
@@ -85,7 +77,7 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
                     fb->len, fb->timestamp.tv_sec, fb->timestamp.tv_usec, capture_time);
 
       // Copy to heap immediately
-      uint8_t *copy = (uint8_t *) malloc(fb->len);
+      auto *copy = static_cast<uint8_t *>(malloc(fb->len));
       if (!copy) {
         Serial.printf("Capture: [Shot %d/%d] MALLOC FAILED\n", i + 1, NUM_SHOTS);
         esp_camera_fb_return(fb);
@@ -113,23 +105,23 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
 
   // Calculate total size for multipart response
   size_t totalSize = 0;
-  for (int i = 0; i < NUM_SHOTS; i++) {
-    if (frames[i].data) {
-      totalSize += frames[i].len;
+  for (const auto &frame: frames) {
+    if (frame.data) {
+      totalSize += frame.len;
     }
   }
 
-  String boundary = "CyberGlassBoundary";
-  size_t boundaryOverhead = successCount * 300;
-  size_t bufferSize = totalSize + boundaryOverhead;
+  const String boundary = "CyberGlassBoundary";
+  const size_t boundaryOverhead = successCount * 300;
+  const size_t bufferSize = totalSize + boundaryOverhead;
 
   // Build final multipart buffer
-  uint8_t *buffer = (uint8_t *) malloc(bufferSize);
+  auto *buffer = static_cast<uint8_t *>(malloc(bufferSize));
   if (!buffer) {
     Serial.println("Capture: Final buffer allocation failed");
-    for (int i = 0; i < NUM_SHOTS; i++) {
-      if (frames[i].data)
-        free(frames[i].data);
+    for (const auto &frame: frames) {
+      if (frame.data)
+        free(frame.data);
     }
     request->send(500, "text/plain", "Out of memory");
     return;
@@ -143,8 +135,6 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
 
     if (!frames[i].data)
       continue;
-
-    size_t segmentStart = bufferPos;
 
     // Add boundary and headers
     String header = "--" + boundary + "\r\n";
@@ -170,20 +160,20 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
   }
 
   // Add final boundary
-  String footer = "--" + boundary + "--\r\n";
+  const String footer = "--" + boundary + "--\r\n";
   memcpy(buffer + bufferPos, footer.c_str(), footer.length());
   bufferPos += footer.length();
 
   // Send multipart response
   AsyncWebServerResponse *response =
-      request->beginResponse(200, "multipart/form-data; boundary=" + boundary, buffer, bufferPos);
+      AsyncWebServerRequest::beginResponse(200, "multipart/form-data; boundary=" + boundary, buffer, bufferPos);
 
   request->send(response);
 }
 
 void WebServerManager::handleResolution(AsyncWebServerRequest *request) {
   if (request->hasParam("value")) {
-    String res = request->getParam("value")->value();
+    const String res = request->getParam("value")->value();
     framesize_t size = FRAMESIZE_VGA;
 
     if (res == "QQVGA")
@@ -212,7 +202,7 @@ void WebServerManager::handleResolution(AsyncWebServerRequest *request) {
 
 void WebServerManager::handleQuality(AsyncWebServerRequest *request) {
   if (request->hasParam("value")) {
-    int quality = request->getParam("value")->value().toInt();
+    const int quality = request->getParam("value")->value().toInt();
     changeQuality(quality);
     request->send(200, "text/plain", "Quality changed to " + String(quality));
   } else {
@@ -220,39 +210,11 @@ void WebServerManager::handleQuality(AsyncWebServerRequest *request) {
   }
 }
 
-void WebServerManager::handleStart(AsyncWebServerRequest *request) {
-  IPAddress clientIP = request->client()->remoteIP();
-
-  // Get client port from URL parameter, default to UDP_PORT if not specified
-  uint16_t clientPort = UDP_PORT;
-  if (request->hasParam("port")) {
-    clientPort = request->getParam("port")->value().toInt();
-  }
-
-  udpStream->start(clientIP, clientPort);
-
-  Serial.printf("Start: Streaming to %s:%d\n", clientIP.toString().c_str(), clientPort);
-
-  String response = "{";
-  response += "\"status\":\"streaming\",";
-  response += "\"client\":\"" + clientIP.toString() + "\",";
-  response += "\"port\":" + String(clientPort);
-  response += "}";
-  request->send(200, "application/json", response);
-}
-
-void WebServerManager::handleStop(AsyncWebServerRequest *request) {
-  udpStream->stop();
-  Serial.println("Stop: Streaming stopped");
-  request->send(200, "application/json", "{\"status\":\"stopped\"}");
-}
-
-void WebServerManager::handleStatus(AsyncWebServerRequest *request) {
+void WebServerManager::handleStatus(AsyncWebServerRequest *request) const {
   String status = "{";
   status += "\"clients\":" + String(wifi->getClientCount()) + ",";
   status += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
-  status += "\"psram\":" + String(ESP.getFreePsram()) + ",";
-  status += "\"streaming\":" + String(udpStream->isStreaming() ? "true" : "false");
+  status += "\"psram\":" + String(ESP.getFreePsram());
   status += "}";
   request->send(200, "application/json", status);
 }
