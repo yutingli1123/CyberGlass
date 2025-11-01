@@ -30,3 +30,4 @@ serial_log.txt
 
 # macOS
 .DS_Store
+.idea

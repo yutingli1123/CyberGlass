@@ -117,8 +117,18 @@ void WiFiProvisioning::loadOrGenerateCredentials() {
 void WiFiProvisioning::loadExternalCredentials() {
   preferences.begin("cyberglass", false);
 
-  externalSSID = preferences.getString("ext_ssid", "");
-  externalPassword = preferences.getString("ext_password", "");
+  // Check if keys exist to avoid error logs on first boot
+  if (preferences.isKey("ext_ssid")) {
+    externalSSID = preferences.getString("ext_ssid", "");
+  } else {
+    externalSSID = "";
+  }
+
+  if (preferences.isKey("ext_password")) {
+    externalPassword = preferences.getString("ext_password", "");
+  } else {
+    externalPassword = "";
+  }
 
   if (externalSSID.length() > 0) {
     Serial.println("Loaded external WiFi credentials from NVS");
@@ -164,17 +174,6 @@ bool WiFiProvisioning::initAP() {
     apRunning = true;
 
     Serial.println("WiFi AP started successfully!");
-    Serial.print("SSID: ");
-    Serial.println(ssid);
-    Serial.print("Password: ");
-    Serial.println(password);
-    Serial.print("Device ID: ");
-    Serial.println(deviceID);
-    Serial.print("IP Address: ");
-    Serial.println(apIP);
-    Serial.print("Max Connections: ");
-    Serial.println(AP_MAX_CONNECTIONS);
-    Serial.println("======================================");
 
     return true;
   }

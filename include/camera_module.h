@@ -21,18 +21,6 @@
 bool initCamera();
 
 /**
- * @brief Capture a photo and output information via serial
- * @return true if capture successful, false otherwise
- */
-bool capturePhoto();
-
-/**
- * @brief Capture a photo and send via serial in binary format
- * @return true if capture successful, false otherwise
- */
-bool captureAndSendBinary();
-
-/**
  * @brief Change camera resolution
  * @param frameSize Target frame size (e.g., FRAMESIZE_UXGA, FRAMESIZE_SVGA)
  * @return true if resolution changed successfully, false otherwise
@@ -49,8 +37,7 @@ bool changeQuality(int quality);
 /**
  * @brief Process serial commands for camera control
  * Commands:
- *   - "capture" or "c": Take a photo and display info
- *   - "send" or "d": Take a photo and send in binary format
+ *   - "init" or "i": (Re)initialize camera module
  *   - "status" or "s": Show camera status
  *   - "resolution" or "r": Change camera resolution
  *   - "quality" or "q": Change JPEG quality

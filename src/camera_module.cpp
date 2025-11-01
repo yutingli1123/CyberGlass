@@ -95,13 +95,6 @@ bool initCamera() {
   Serial.println("\n=== Camera Module Initialization ===");
   Serial.println("[" + getTimestamp() + "] Starting camera initialization...");
 
-  // Check PSRAM availability
-  if (psramFound()) {
-    Serial.println("[" + getTimestamp() + "] PSRAM detected: OK");
-  } else {
-    Serial.println("[" + getTimestamp() + "] WARNING: PSRAM not found - limited resolution");
-  }
-
   // Configure camera settings
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -301,26 +294,10 @@ bool changeResolution(const framesize_t frameSize) {
     return false;
   }
 
-  Serial.println("\n--- Resolution Change Start ---");
-  Serial.println("[" + getTimestamp() + "] Changing resolution to: " + getResolutionName(frameSize));
-
   // Get camera sensor
   sensor_t *s = esp_camera_sensor_get();
   if (s == nullptr) {
     Serial.println("[" + getTimestamp() + "] ERROR: Failed to get camera sensor");
-    return false;
-  }
-
-  // Check if resolution is supported
-  // Note: Some resolutions require PSRAM
-  const bool requiresPSRAM = frameSize >= FRAMESIZE_SXGA;
-  if (requiresPSRAM && !psramFound()) {
-    Serial.println("[" + getTimestamp() + "] ERROR: This resolution requires PSRAM");
-    Serial.println("[" + getTimestamp() + "] Available resolutions without PSRAM:");
-    Serial.println("  - QQVGA (160x120)");
-    Serial.println("  - QVGA (320x240)");
-    Serial.println("  - VGA (640x480)");
-    Serial.println("  - SVGA (800x600)");
     return false;
   }
 
@@ -330,10 +307,7 @@ bool changeResolution(const framesize_t frameSize) {
     return false;
   }
 
-  Serial.println("[" + getTimestamp() + "] Resolution changed: SUCCESS");
-  Serial.println("[" + getTimestamp() + "] Current resolution: " + getResolutionName(frameSize));
-  Serial.println("--- Resolution Change End ---\n");
-
+  Serial.println("[" + getTimestamp() + "] Resolution: " + getResolutionName(frameSize));
   return true;
 }
 
@@ -354,9 +328,6 @@ bool changeQuality(const int quality) {
     return false;
   }
 
-  Serial.println("\n--- JPEG Quality Change Start ---");
-  Serial.printf("[%s] Changing JPEG quality to: %d\n", getTimestamp().c_str(), quality);
-
   // Get camera sensor
   sensor_t *s = esp_camera_sensor_get();
   if (s == nullptr) {
@@ -370,124 +341,7 @@ bool changeQuality(const int quality) {
     return false;
   }
 
-  Serial.println("[" + getTimestamp() + "] JPEG quality changed: SUCCESS");
-  Serial.printf("[%s] Current quality: %d (0=highest, 63=lowest)\n", getTimestamp().c_str(), quality);
-  Serial.println("--- JPEG Quality Change End ---\n");
-
-  return true;
-}
-
-/**
- * @brief Capture a photo and display information
- * @return true if successful, false otherwise
- */
-bool capturePhoto() {
-  if (!cameraInitialized) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
-    return false;
-  }
-
-  Serial.println("\n--- Photo Capture Start ---");
-  Serial.println("[" + getTimestamp() + "] Capturing photo...");
-
-  // Get current frame from buffer (camera continuously captures)
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera capture failed");
-    return false;
-  }
-
-  photoCount++;
-
-  // Display photo information
-  Serial.println("[" + getTimestamp() + "] Photo capture: SUCCESS");
-  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), photoCount);
-  Serial.printf("  - Size: %u bytes\n", fb->len);
-  Serial.printf("  - Width: %d pixels\n", fb->width);
-  Serial.printf("  - Height: %d pixels\n", fb->height);
-  Serial.printf("  - Format: %s\n", fb->format == PIXFORMAT_JPEG ? "JPEG" : "RAW");
-
-  // Here you can add code to:
-  // - Save to SD card
-  // - Send via WiFi/BLE
-  // - Process the image
-
-  // Release frame buffer
-  esp_camera_fb_return(fb);
-  Serial.println("[" + getTimestamp() + "] Frame buffer released");
-  Serial.println("--- Photo Capture End ---\n");
-
-  return true;
-}
-
-/**
- * @brief Capture a photo and send via serial in binary format
- * @return true if successful, false otherwise
- */
-bool captureAndSendBinary() {
-  if (!cameraInitialized) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera not initialized");
-    return false;
-  }
-
-  Serial.println("\n--- Photo Capture & Send Start ---");
-  Serial.println("[" + getTimestamp() + "] Retrieving frame from buffer...");
-
-  // Get current frame from buffer (camera continuously captures)
-  // Note: With CAMERA_GRAB_LATEST mode, this returns the latest frame immediately
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("[" + getTimestamp() + "] ERROR: Camera capture failed");
-    return false;
-  }
-
-  photoCount++;
-
-  // Display photo information
-  Serial.println("[" + getTimestamp() + "] Photo retrieved: SUCCESS");
-  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), photoCount);
-  Serial.printf("  - Size: %u bytes (%.2f KB)\n", fb->len, fb->len / 1024.0);
-  Serial.printf("  - Width: %d pixels\n", fb->width);
-  Serial.printf("  - Height: %d pixels\n", fb->height);
-  Serial.printf("  - Format: %s\n", fb->format == PIXFORMAT_JPEG ? "JPEG" : "RAW");
-
-  // Send photo data in binary format
-  Serial.println("[" + getTimestamp() + "] Sending photo data in binary format...");
-
-  const unsigned long transfer_start = millis();
-
-  // Send frame in binary format:
-  // [MARKER: 4 bytes 0xC0 0x1D 0xF1 0x8E - "COLD FIRE"]
-  // [SIZE: 4 bytes, little-endian]
-  // [DATA: SIZE bytes]
-  Serial.write(0xC0);
-  Serial.write(0x1D);
-  Serial.write(0xF1);
-  Serial.write(0x8E);
-
-  // Send size (32-bit little-endian)
-  Serial.write(static_cast<uint8_t>(fb->len & 0xFF));
-  Serial.write(static_cast<uint8_t>(fb->len >> 8 & 0xFF));
-  Serial.write(static_cast<uint8_t>(fb->len >> 16 & 0xFF));
-  Serial.write(static_cast<uint8_t>(fb->len >> 24 & 0xFF));
-
-  // Send JPEG data
-  Serial.write(fb->buf, fb->len);
-  Serial.flush();
-
-  const unsigned long transfer_end = millis();
-  const unsigned long transfer_time = transfer_end - transfer_start;
-
-  Serial.printf("[%s] Photo transmission: COMPLETE\n", getTimestamp().c_str());
-  Serial.printf("[%s] Performance Summary:\n", getTimestamp().c_str());
-  Serial.printf("  - Transfer time: %lu ms\n", transfer_time);
-  Serial.printf("  - Transfer speed: %.2f KB/s\n", fb->len / 1024.0 / (transfer_time / 1000.0));
-  Serial.printf("  - Note: Frame retrieved from continuous buffer (0ms retrieval)\n");
-  // Release frame buffer
-  esp_camera_fb_return(fb);
-  Serial.println("[" + getTimestamp() + "] Frame buffer released");
-  Serial.println("--- Photo Capture & Send End ---\n");
-
+  Serial.printf("[%s] Quality: %d (0=highest, 63=lowest)\n", getTimestamp().c_str(), quality);
   return true;
 }
 
@@ -526,10 +380,6 @@ void processCameraCommand() {
           } else {
             Serial.println("[" + getTimestamp() + "] Camera re-initialization: FAILED");
           }
-        } else if (command == "capture" || command == "c") {
-          capturePhoto();
-        } else if (command == "send" || command == "d") {
-          captureAndSendBinary();
         } else if (command == "status" || command == "s") {
           Serial.println("\n=== Camera Status ===");
           Serial.println("[" + getTimestamp() + "] Camera initialized: " + String(cameraInitialized ? "YES" : "NO"));
@@ -545,11 +395,8 @@ void processCameraCommand() {
             Serial.println("[" + getTimestamp() + "] Hint: Try 'init' command to retry");
           }
           Serial.println("[" + getTimestamp() + "] Total photos taken: " + String(photoCount));
-          Serial.println("[" + getTimestamp() + "] PSRAM available: " + String(psramFound() ? "YES" : "NO"));
           Serial.println("[" + getTimestamp() + "] Free heap: " + String(ESP.getFreeHeap()) + " bytes");
-          if (psramFound()) {
-            Serial.println("[" + getTimestamp() + "] Free PSRAM: " + String(ESP.getFreePsram()) + " bytes");
-          }
+          Serial.println("[" + getTimestamp() + "] Free PSRAM: " + String(ESP.getFreePsram()) + " bytes");
           Serial.println("====================\n");
         } else if (command == "quality" || command == "q") {
           // Show quality menu
@@ -565,26 +412,16 @@ void processCameraCommand() {
         } else if (command == "resolution" || command == "r") {
           // Show resolution menu
           Serial.println("\n=== Available Resolutions ===");
-          if (psramFound()) {
-            Serial.println("1. QQVGA (160x120)");
-            Serial.println("2. QVGA (320x240)");
-            Serial.println("3. VGA (640x480) [DEFAULT]");
-            Serial.println("4. SVGA (800x600)");
-            Serial.println("5. XGA (1024x768)");
-            Serial.println("6. HD (1280x720)");
-            Serial.println("7. SXGA (1280x1024)");
-            Serial.println("8. UXGA (1600x1200)");
-            Serial.println("9. FHD (1920x1080)");
-            Serial.println("0. QXGA (2048x1536)");
-          } else {
-            Serial.println("1. QQVGA (160x120)");
-            Serial.println("2. QVGA (320x240)");
-            Serial.println("3. VGA (640x480)");
-            Serial.println("4. SVGA (800x600) [DEFAULT]");
-            Serial.println("Note: Higher resolutions require PSRAM");
-          }
+          Serial.println("1. QQVGA (160x120)");
+          Serial.println("2. QVGA (320x240)");
+          Serial.println("3. VGA (640x480) [DEFAULT]");
+          Serial.println("4. SVGA (800x600)");
+          Serial.println("5. XGA (1024x768)");
+          Serial.println("6. HD (1280x720)");
+          Serial.println("7. SXGA (1280x1024)");
+          Serial.println("8. UXGA (1600x1200)");
           Serial.println("==============================");
-          Serial.println("Enter number (1-9/0) or resolution name:");
+          Serial.println("Enter number (1-8) or resolution name:");
         }
         // Handle resolution selection by number
         else if (command == "1") {
@@ -603,10 +440,6 @@ void processCameraCommand() {
           changeResolution(FRAMESIZE_SXGA);
         } else if (command == "8") {
           changeResolution(FRAMESIZE_UXGA);
-        } else if (command == "9") {
-          changeResolution(FRAMESIZE_FHD);
-        } else if (command == "0") {
-          changeResolution(FRAMESIZE_QXGA);
         }
         // Handle resolution selection by name
         else if (command == "qqvga") {
@@ -625,15 +458,9 @@ void processCameraCommand() {
           changeResolution(FRAMESIZE_SXGA);
         } else if (command == "uxga") {
           changeResolution(FRAMESIZE_UXGA);
-        } else if (command == "fhd") {
-          changeResolution(FRAMESIZE_FHD);
-        } else if (command == "qxga") {
-          changeResolution(FRAMESIZE_QXGA);
         } else if (command == "help" || command == "h") {
           Serial.println("\n=== Available Commands ===");
           Serial.println("  init       (i) - (Re)initialize camera module");
-          Serial.println("  capture    (c) - Capture a photo and display info");
-          Serial.println("  send       (d) - Capture and send photo (binary)");
           Serial.println("  resolution (r) - Change camera resolution");
           Serial.println("  quality    (q) - Change JPEG quality (0-63)");
           Serial.println("  status     (s) - Show camera status");
