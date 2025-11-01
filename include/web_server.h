@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include "camera_module.h"
-#include "wifi_provisioning.h"
+#include "network_provisioning.h"
 
 // Web Server Manager Class - API Endpoints Only
 class WebServerManager {

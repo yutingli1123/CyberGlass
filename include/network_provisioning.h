@@ -1,5 +1,5 @@
-#ifndef WIFI_PROVISIONING_H
-#define WIFI_PROVISIONING_H
+#ifndef NETWORK_PROVISIONING_H
+#define NETWORK_PROVISIONING_H
 
 #include <Arduino.h>
 #include <BLE2902.h>
@@ -12,6 +12,9 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+// Forward declaration
+class BLEImageTransfer;
+
 // WiFi AP Configuration
 #define AP_SSID_PREFIX "CyberGlass-"
 #define AP_CHANNEL 1
@@ -23,7 +26,7 @@
 #define BLE_CHAR_PASSWORD_UUID "c8ee211a-b1eb-11f0-bfc4-777d4dda4cde"
 #define BLE_DEVICE_NAME_PREFIX "CyberGlass-"
 
-// New BLE Characteristics for External WiFi Provisioning
+// BLE Characteristics for External WiFi Provisioning
 #define BLE_CHAR_EXT_SSID_UUID "e2bd3d24-b1eb-11f0-8222-abd7b78f2ca6" // WRITE - External WiFi SSID
 #define BLE_CHAR_EXT_PASSWORD_UUID "e616b554-b1eb-11f0-bdab-fb872f685991" // WRITE - External WiFi Password
 #define BLE_CHAR_WIFI_STATUS_UUID "e9855d30-b1eb-11f0-96aa-abcc2336cb9a" // READ/NOTIFY - Connection status
@@ -42,16 +45,16 @@
 // Web Server Configuration
 #define WEB_SERVER_PORT 80
 
-// WiFi Provisioning Class
-class WiFiProvisioning {
+// Network Provisioning Class (formerly WiFiProvisioning)
+class NetworkProvisioning {
 public:
-  WiFiProvisioning();
+  NetworkProvisioning();
 
   // Initialize WiFi as Access Point with unique SSID and password
   bool initAP();
 
   // Initialize BLE for provisioning (with pairing security)
-  bool initBLE();
+  bool initBLE(class BLEImageTransfer *imageTransfer = nullptr);
 
   // Stop BLE (after provisioning complete)
   void stopBLE();
@@ -100,6 +103,10 @@ public:
   // Generate device ID from MAC address
   String getDeviceID();
 
+  // Get BLE Server and Service for image transfer integration
+  BLEServer *getBLEServer() { return pServer; }
+  BLEService *getBLEService() { return pService; }
+
 private:
   bool apRunning;
   bool staConnected;
@@ -113,8 +120,11 @@ private:
   int wifiMode; // 0=AP, 1=STA, 2=AP+STA
   Preferences preferences;
 
-  // BLE Server and Characteristics
+  // BLE Server and Service
   BLEServer *pServer;
+  BLEService *pService;
+
+  // BLE Characteristics (WiFi provisioning only)
   BLECharacteristic *pCharSSID;
   BLECharacteristic *pCharPassword;
   BLECharacteristic *pCharExtSSID;
@@ -142,4 +152,7 @@ private:
   friend class WiFiProvisioningCallbacks;
 };
 
-#endif // WIFI_PROVISIONING_H
+// Maintain backward compatibility with old class name
+using WiFiProvisioning = NetworkProvisioning;
+
+#endif // NETWORK_PROVISIONING_H

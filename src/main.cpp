@@ -1,13 +1,15 @@
 #include <Arduino.h>
-#include "camera_module.h"
-#include "wifi_provisioning.h"
-#include "web_server.h"
 #include <ESPAsyncWebServer.h>
+#include "ble_image_transfer.h"
+#include "camera_module.h"
+#include "network_provisioning.h"
+#include "web_server.h"
 
 // Global instances
-WiFiProvisioning wifiAP;
+WiFiProvisioning wifiAP; // Using backward-compatible alias for NetworkProvisioning
 AsyncWebServer server(80);
 WebServerManager webServer(&server, &wifiAP);
+BLEImageTransfer bleImageTransfer;
 
 void setup() {
   Serial.begin(115200); // Initialize serial communication
@@ -44,8 +46,9 @@ void setup() {
 
   // Initialize BLE only if WiFi STA is NOT connected (save resources)
   if (!wifiConnected) {
-    if (wifiAP.initBLE()) {
-      Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (for WiFi setup)");
+    // Initialize BLE with image transfer support (image transfer characteristics added before service starts)
+    if (wifiAP.initBLE(&bleImageTransfer)) {
+      Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY (for WiFi setup and image transfer)");
     } else {
       Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
     }
@@ -95,6 +98,7 @@ void setup() {
   Serial.println("  - Read AP credentials wirelessly");
   Serial.println("  - Send external WiFi credentials");
   Serial.println("  - Switch WiFi modes");
+  Serial.println("  - Request and transfer images via BLE");
   Serial.println("\nNote: BLE is open for initial setup (within range ~10m)");
   Serial.println("Security enforced via WiFi network isolation");
 

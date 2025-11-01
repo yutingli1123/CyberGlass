@@ -1,4 +1,5 @@
-#include "wifi_provisioning.h"
+#include "network_provisioning.h"
+#include "ble_image_transfer.h"
 
 // BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
@@ -15,10 +16,10 @@ class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
 
 // BLE Callback class for handling characteristic writes
 class WiFiProvisioningCallbacks final : public BLECharacteristicCallbacks {
-  WiFiProvisioning *provisioning;
+  NetworkProvisioning *provisioning;
 
 public:
-  explicit WiFiProvisioningCallbacks(WiFiProvisioning *prov) : provisioning(prov) {}
+  explicit WiFiProvisioningCallbacks(NetworkProvisioning *prov) : provisioning(prov) {}
 
   void onWrite(BLECharacteristic *pCharacteristic) override {
     const std::string uuid = pCharacteristic->getUUID().toString();
@@ -62,11 +63,11 @@ public:
   }
 };
 
-WiFiProvisioning::WiFiProvisioning() :
-    apRunning(false), staConnected(false), wifiMode(WIFI_MODE_AP_ONLY), pServer(nullptr), pCharSSID(nullptr),
-    pCharPassword(nullptr), pCharExtSSID(nullptr), pCharExtPassword(nullptr), pCharWiFiStatus(nullptr),
-    pCharSTAIP(nullptr), pCharWiFiMode(nullptr), pServerCallbacks(nullptr), pExtSSIDCallbacks(nullptr),
-    pExtPasswordCallbacks(nullptr), pWiFiModeCallbacks(nullptr) {
+NetworkProvisioning::NetworkProvisioning() :
+    apRunning(false), staConnected(false), wifiMode(WIFI_MODE_AP_ONLY), pServer(nullptr), pService(nullptr),
+    pCharSSID(nullptr), pCharPassword(nullptr), pCharExtSSID(nullptr), pCharExtPassword(nullptr),
+    pCharWiFiStatus(nullptr), pCharSTAIP(nullptr), pCharWiFiMode(nullptr), pServerCallbacks(nullptr),
+    pExtSSIDCallbacks(nullptr), pExtPasswordCallbacks(nullptr), pWiFiModeCallbacks(nullptr) {
   // Generate device ID from MAC address
   uint8_t mac[6];
   esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -75,7 +76,7 @@ WiFiProvisioning::WiFiProvisioning() :
   deviceID = String(macStr);
 }
 
-String WiFiProvisioning::generatePassword() {
+String NetworkProvisioning::generatePassword() {
   // Generate 12-character random password
   constexpr char charset[] = "abcdefghjkmnpqrstuvwxyz23456789"; // Excluding confusing chars
   String pwd = "";
@@ -87,7 +88,7 @@ String WiFiProvisioning::generatePassword() {
   return pwd;
 }
 
-void WiFiProvisioning::loadOrGenerateCredentials() {
+void NetworkProvisioning::loadOrGenerateCredentials() {
   preferences.begin("cyberglass", false);
 
   // Check if credentials exist
@@ -114,7 +115,7 @@ void WiFiProvisioning::loadOrGenerateCredentials() {
   preferences.end();
 }
 
-void WiFiProvisioning::loadExternalCredentials() {
+void NetworkProvisioning::loadExternalCredentials() {
   preferences.begin("cyberglass", false);
 
   externalSSID = preferences.getString("ext_ssid", "");
@@ -128,7 +129,7 @@ void WiFiProvisioning::loadExternalCredentials() {
   preferences.end();
 }
 
-void WiFiProvisioning::saveExternalCredentials() {
+void NetworkProvisioning::saveExternalCredentials() {
   preferences.begin("cyberglass", false);
 
   if (externalSSID.length() > 0) {
@@ -142,7 +143,7 @@ void WiFiProvisioning::saveExternalCredentials() {
   Serial.println("Saved external WiFi credentials to NVS");
 }
 
-bool WiFiProvisioning::initAP() {
+bool NetworkProvisioning::initAP() {
   Serial.println("=== Initializing WiFi Access Point ===");
 
   // Load or generate credentials
@@ -183,23 +184,23 @@ bool WiFiProvisioning::initAP() {
   return false;
 }
 
-IPAddress WiFiProvisioning::getAPIP() { return apIP; }
+IPAddress NetworkProvisioning::getAPIP() { return apIP; }
 
-int WiFiProvisioning::getClientCount() const {
+int NetworkProvisioning::getClientCount() const {
   if (!apRunning)
     return 0;
   return WiFi.softAPgetStationNum();
 }
 
-bool WiFiProvisioning::isAPRunning() const { return apRunning; }
+bool NetworkProvisioning::isAPRunning() const { return apRunning; }
 
-String WiFiProvisioning::getSSID() { return ssid; }
+String NetworkProvisioning::getSSID() { return ssid; }
 
-String WiFiProvisioning::getPassword() { return password; }
+String NetworkProvisioning::getPassword() { return password; }
 
-String WiFiProvisioning::getDeviceID() { return deviceID; }
+String NetworkProvisioning::getDeviceID() { return deviceID; }
 
-bool WiFiProvisioning::initBLE() {
+bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   Serial.println("=== Initializing BLE Provisioning ===");
 
   const String bleName = String(BLE_DEVICE_NAME_PREFIX) + deviceID;
@@ -218,7 +219,7 @@ bool WiFiProvisioning::initBLE() {
   pServer->setCallbacks(pServerCallbacks);
 
   // Create BLE Service
-  BLEService *pService = pServer->createService(BLE_SERVICE_UUID);
+  pService = pServer->createService(BLE_SERVICE_UUID);
 
   // Create SSID Characteristic (Read) - AP credentials
   pCharSSID = pService->createCharacteristic(BLE_CHAR_SSID_UUID, BLECharacteristic::PROPERTY_READ);
@@ -255,6 +256,14 @@ bool WiFiProvisioning::initBLE() {
   pWiFiModeCallbacks = new WiFiProvisioningCallbacks(this);
   pCharWiFiMode->setCallbacks(pWiFiModeCallbacks);
 
+  // Initialize BLE Image Transfer characteristics BEFORE starting service
+  if (imageTransfer) {
+    Serial.println("Adding BLE Image Transfer characteristics...");
+    if (!imageTransfer->initCharacteristics(pServer, pService)) {
+      Serial.println("WARNING: Failed to add image transfer characteristics");
+    }
+  }
+
   // Start service
   pService->start();
 
@@ -274,7 +283,7 @@ bool WiFiProvisioning::initBLE() {
   return true;
 }
 
-void WiFiProvisioning::stopBLE() {
+void NetworkProvisioning::stopBLE() {
   if (pServer) {
     // Clean up callback objects to prevent memory leak
     delete pServerCallbacks;
@@ -291,11 +300,12 @@ void WiFiProvisioning::stopBLE() {
     // Deinitialize BLE
     BLEDevice::deinit(true);
     pServer = nullptr;
+    pService = nullptr;
     Serial.println("BLE stopped and callbacks cleaned up");
   }
 }
 
-void WiFiProvisioning::printStatus() const {
+void NetworkProvisioning::printStatus() const {
   Serial.println("\n=== WiFi Status ===");
   Serial.printf("WiFi Mode: %d (0=AP, 1=STA, 2=AP+STA)\n", wifiMode);
 
@@ -332,7 +342,7 @@ void WiFiProvisioning::printStatus() const {
 }
 
 // Station Mode Implementation
-bool WiFiProvisioning::initSTA(const String &extSSID, const String &extPassword) {
+bool NetworkProvisioning::initSTA(const String &extSSID, const String &extPassword) {
   Serial.println("=== Initializing WiFi Station Mode ===");
 
   externalSSID = extSSID;
@@ -345,7 +355,7 @@ bool WiFiProvisioning::initSTA(const String &extSSID, const String &extPassword)
   return connectToExternalWiFi();
 }
 
-bool WiFiProvisioning::connectToExternalWiFi() {
+bool NetworkProvisioning::connectToExternalWiFi() {
   if (externalSSID.length() == 0) {
     Serial.println("No external WiFi credentials configured");
     return false;
@@ -490,11 +500,11 @@ bool WiFiProvisioning::connectToExternalWiFi() {
   return false;
 }
 
-bool WiFiProvisioning::isConnectedToSTA() const { return staConnected && WiFiClass::status() == WL_CONNECTED; }
+bool NetworkProvisioning::isConnectedToSTA() const { return staConnected && WiFiClass::status() == WL_CONNECTED; }
 
-IPAddress WiFiProvisioning::getSTAIP() { return staIP; }
+IPAddress NetworkProvisioning::getSTAIP() { return staIP; }
 
-String WiFiProvisioning::getSTAStatus() const {
+String NetworkProvisioning::getSTAStatus() const {
   if (staConnected) {
     return "Connected to " + externalSSID;
   }
@@ -505,7 +515,7 @@ String WiFiProvisioning::getSTAStatus() const {
 }
 
 // Dual Mode (AP + STA)
-bool WiFiProvisioning::initAPSTA() {
+bool NetworkProvisioning::initAPSTA() {
   Serial.println("=== Initializing Dual Mode (AP + STA) ===");
 
   wifiMode = WIFI_MODE_AP_STA;
@@ -542,7 +552,7 @@ bool WiFiProvisioning::initAPSTA() {
 }
 
 // WiFi Mode Management
-void WiFiProvisioning::setWiFiMode(const int mode) {
+void NetworkProvisioning::setWiFiMode(const int mode) {
   if (mode < WIFI_MODE_AP_ONLY || mode > WIFI_MODE_AP_STA) {
     Serial.println("Invalid WiFi mode");
     return;
@@ -558,14 +568,14 @@ void WiFiProvisioning::setWiFiMode(const int mode) {
   Serial.printf("WiFi mode set to: %d\n", wifiMode);
 }
 
-int WiFiProvisioning::getWiFiMode() const { return wifiMode; }
+int NetworkProvisioning::getWiFiMode() const { return wifiMode; }
 
-String WiFiProvisioning::getExternalSSID() { return externalSSID; }
+String NetworkProvisioning::getExternalSSID() { return externalSSID; }
 
-String WiFiProvisioning::getExternalPassword() { return externalPassword; }
+String NetworkProvisioning::getExternalPassword() { return externalPassword; }
 
 // mDNS Service Discovery
-bool WiFiProvisioning::startMDNS() const {
+bool NetworkProvisioning::startMDNS() const {
   String hostname = "cyberglass-" + deviceID;
   hostname.toLowerCase();
 
@@ -587,7 +597,7 @@ bool WiFiProvisioning::startMDNS() const {
   return false;
 }
 
-String WiFiProvisioning::getMDNSHostname() const {
+String NetworkProvisioning::getMDNSHostname() const {
   String hostname = "cyberglass-" + deviceID;
   hostname.toLowerCase();
   return hostname + ".local";
