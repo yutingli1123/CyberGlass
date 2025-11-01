@@ -47,18 +47,10 @@ bool changeResolution(framesize_t frameSize);
 bool changeQuality(int quality);
 
 /**
- * @brief Start video streaming mode with binary transfer
- * Continuously captures and sends frames as raw binary data
- */
-void startBinaryVideoStream();
-
-/**
  * @brief Process serial commands for camera control
  * Commands:
  *   - "capture" or "c": Take a photo and display info
  *   - "send" or "d": Take a photo and send in binary format
- *   - "stream": Start video streaming (binary)
- *   - "stop": Stop video streaming
  *   - "status" or "s": Show camera status
  *   - "resolution" or "r": Change camera resolution
  *   - "quality" or "q": Change JPEG quality

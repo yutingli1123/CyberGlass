@@ -57,31 +57,29 @@ public:
   void stopBLE();
 
   // Station Mode (Connect to external WiFi)
-  bool initSTA(String extSSID, String extPassword);
+  bool initSTA(const String &extSSID, const String &extPassword);
   bool connectToExternalWiFi();
-  bool isConnectedToSTA();
+  bool isConnectedToSTA() const;
   IPAddress getSTAIP();
-  String getSTAStatus(); // Returns connection status string
+  String getSTAStatus() const; // Returns connection status string
 
   // Dual Mode (AP + STA simultaneously)
   bool initAPSTA();
 
   // WiFi Mode Management
   void setWiFiMode(int mode); // 0=AP, 1=STA, 2=AP+STA
-  int getWiFiMode();
+  int getWiFiMode() const;
 
   // mDNS Service Discovery
-  bool startMDNS();
-  String getMDNSHostname();
+  bool startMDNS() const;
+  String getMDNSHostname() const;
 
   // Get AP IP address
   IPAddress getAPIP();
 
   // Get number of connected clients
-  int getClientCount();
-
-  // Check if WiFi is running
-  bool isAPRunning();
+  int getClientCount() const;
+  bool isAPRunning() const;
 
   // Get SSID
   String getSSID();
@@ -97,7 +95,7 @@ public:
   void loadExternalCredentials();
 
   // Print WiFi status
-  void printStatus();
+  void printStatus() const;
 
   // Generate device ID from MAC address
   String getDeviceID();
@@ -132,7 +130,7 @@ private:
   BLECharacteristicCallbacks *pWiFiModeCallbacks;
 
   // Generate random password
-  String generatePassword();
+  static String generatePassword();
 
   // Load or generate credentials
   void loadOrGenerateCredentials();
