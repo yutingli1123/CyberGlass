@@ -6,29 +6,28 @@
 #include "camera_module.h"
 #include "wifi_provisioning.h"
 
-// Web Server Manager Class
+// Web Server Manager Class - API Endpoints Only
 class WebServerManager {
 public:
-    WebServerManager(AsyncWebServer* serverPtr, WiFiProvisioning* wifiPtr);
+  WebServerManager(AsyncWebServer *serverPtr, WiFiProvisioning *wifiPtr);
 
-    // Setup all web server routes and handlers
-    void setupRoutes();
+  // Setup all web server routes and handlers
+  void setupRoutes();
 
 private:
-    AsyncWebServer* server;
-    WiFiProvisioning* wifi;
+  AsyncWebServer *server;
+  WiFiProvisioning *wifi;
 
-    // Route handlers
-    void handleRoot(AsyncWebServerRequest *request);
-    void handleCapture(AsyncWebServerRequest *request);
-    void handleStream(AsyncWebServerRequest *request);
-    void handleStop(AsyncWebServerRequest *request);
-    void handleResolution(AsyncWebServerRequest *request);
-    void handleQuality(AsyncWebServerRequest *request);
-    void handleStatus(AsyncWebServerRequest *request);
+  // Rate limiting for capture endpoint
+  unsigned long lastCaptureTime;
+  static constexpr unsigned long MIN_CAPTURE_INTERVAL = 100; // 100ms = 10 FPS max
+  static constexpr size_t MIN_FREE_PSRAM = 200000; // 200KB minimum free PSRAM
 
-    // Helper functions
-    String generateHTML();
+  // API endpoint handlers
+  void handleCapture(AsyncWebServerRequest *request);
+  static void handleResolution(AsyncWebServerRequest *request);
+  static void handleQuality(AsyncWebServerRequest *request);
+  void handleStatus(AsyncWebServerRequest *request) const;
 };
 
 #endif // WEB_SERVER_H

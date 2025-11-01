@@ -3,7 +3,7 @@
  * @brief Camera module interface for XIAO ESP32S3 Sense
  * @author CyberGlass Project
  * @date 2025-10-04
- * 
+ *
  * This module provides camera functionality with serial command interface
  * and timestamp support for photo capture operations.
  */
@@ -21,18 +21,6 @@
 bool initCamera();
 
 /**
- * @brief Capture a photo and output information via serial
- * @return true if capture successful, false otherwise
- */
-bool capturePhoto();
-
-/**
- * @brief Capture a photo and send via serial in binary format
- * @return true if capture successful, false otherwise
- */
-bool captureAndSendBinary();
-
-/**
  * @brief Change camera resolution
  * @param frameSize Target frame size (e.g., FRAMESIZE_UXGA, FRAMESIZE_SVGA)
  * @return true if resolution changed successfully, false otherwise
@@ -47,18 +35,9 @@ bool changeResolution(framesize_t frameSize);
 bool changeQuality(int quality);
 
 /**
- * @brief Start video streaming mode with binary transfer
- * Continuously captures and sends frames as raw binary data
- */
-void startBinaryVideoStream();
-
-/**
  * @brief Process serial commands for camera control
  * Commands:
- *   - "capture" or "c": Take a photo and display info
- *   - "send" or "d": Take a photo and send in binary format
- *   - "stream": Start video streaming (binary)
- *   - "stop": Stop video streaming
+ *   - "init" or "i": (Re)initialize camera module
  *   - "status" or "s": Show camera status
  *   - "resolution" or "r": Change camera resolution
  *   - "quality" or "q": Change JPEG quality
