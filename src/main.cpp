@@ -68,7 +68,12 @@ void setup() {
   Serial.println("[" + getTimestamp() + "] Web server: READY");
 
   // Start mDNS for easy discovery
-  wifiAP.startMDNS();
+  if (wifiAP.startMDNS()) {
+    Serial.println("[" + getTimestamp() + "] MDNS started");
+  } else {
+    Serial.println("[" + getTimestamp() + "] WARNING: MDNS initialization failed");
+  }
+
   Serial.println("[" + getTimestamp() + "] mDNS: READY");
 
   // Print connection information
