@@ -8,8 +8,9 @@
 #include <BLEUtils.h>
 
 // BLE Services for Image Transfer (separate from WiFi provisioning service)
-#define BLE_IMAGE_SERVICE_UUID "c6116a0a-b7a0-11f0-880d-6baf85e562fd" // Control service (Request, Info, Control)
-#define BLE_IMAGE_DATA_SERVICE_UUID "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1" // Data service (4 parallel channels)
+#define BLE_IMAGE_SERVICE_UUID "c6116a0a-b7a0-11f0-880d-6baf85e562fd"       // Control service (Request, Info, Control)
+#define BLE_IMAGE_DATA_SERVICE_1_UUID "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1" // Data service 1 (4 parallel channels)
+#define BLE_IMAGE_DATA_SERVICE_2_UUID "e9338c2d-d2e6-11f0-a04f-5d7b0618f9e2" // Data service 2 (4 parallel channels)
 
 // BLE Characteristics for Image Transfer
 #define BLE_CHAR_IMAGE_REQUEST_UUID                                                                                    \
@@ -20,11 +21,15 @@
 #define BLE_CHAR_IMAGE_DATA_2_UUID "a8c72f3e-c1d4-11f0-b2a5-9f4e61bc8d2a" // READ/NOTIFY - Image data chunks (channel 2)
 #define BLE_CHAR_IMAGE_DATA_3_UUID "b3d84a52-c1d4-11f0-8f7c-1a5d92e3c4b6" // READ/NOTIFY - Image data chunks (channel 3)
 #define BLE_CHAR_IMAGE_DATA_4_UUID "bd9e5c68-c1d4-11f0-9e4d-3b7a84f5d2c9" // READ/NOTIFY - Image data chunks (channel 4)
+#define BLE_CHAR_IMAGE_DATA_5_UUID "c84fa74e-d2e6-11f0-9b5e-8e9c1720a1d3" // READ/NOTIFY - Image data chunks (channel 5)
+#define BLE_CHAR_IMAGE_DATA_6_UUID "d35fb85f-d2e6-11f0-ac6f-9fad2831b2e4" // READ/NOTIFY - Image data chunks (channel 6)
+#define BLE_CHAR_IMAGE_DATA_7_UUID "de60c960-d2e6-11f0-bd70-a0be3942c3f5" // READ/NOTIFY - Image data chunks (channel 7)
+#define BLE_CHAR_IMAGE_DATA_8_UUID "e971da71-d2e6-11f0-ce81-b1cf4a53d4e6" // READ/NOTIFY - Image data chunks (channel 8)
 #define BLE_CHAR_IMAGE_CONTROL_UUID                                                                                    \
   "f79a5a02-b762-11f0-9a55-0fae30ddfe0c" // WRITE - Control transfer (request chunk, cancel)
 
 // Number of parallel data channels
-#define BLE_IMAGE_DATA_CHANNELS 4
+#define BLE_IMAGE_DATA_CHANNELS 8
 
 // Image Transfer Configuration
 #define BLE_IMAGE_CHUNK_SIZE 480 // Bytes per chunk (fits within BLE MTU)
@@ -52,8 +57,9 @@ public:
 
 private:
   // BLE Image Transfer Services (separate from WiFi service)
-  BLEService *pImageService; // Control service (Request, Info, Control)
-  BLEService *pImageDataService; // Data service (4 parallel channels)
+  BLEService *pImageService;       // Control service (Request, Info, Control)
+  BLEService *pImageDataService1;  // Data service 1 (channels 1-4)
+  BLEService *pImageDataService2;  // Data service 2 (channels 5-8)
 
   // BLE Image Transfer Characteristics
   BLECharacteristic *pCharImageRequest;

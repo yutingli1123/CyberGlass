@@ -57,10 +57,11 @@ public:
 };
 
 BLEImageTransfer::BLEImageTransfer() :
-    pImageService(nullptr), pImageDataService(nullptr), pCharImageRequest(nullptr), pCharImageInfo(nullptr),
-    pCharImageControl(nullptr), pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), imageBuffer(nullptr),
-    imageSize(0), totalChunks(0), currentChunk(0), imageTransferActive(false), hasPendingRequest(false),
-    pendingResolutionIndex(0), pendingQuality(0), hasPendingChunkRequest(false), pendingChunkIndex(0) {
+    pImageService(nullptr), pImageDataService1(nullptr), pImageDataService2(nullptr), pCharImageRequest(nullptr),
+    pCharImageInfo(nullptr), pCharImageControl(nullptr), pImageRequestCallbacks(nullptr),
+    pImageControlCallbacks(nullptr), imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
+    imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0), pendingQuality(0),
+    hasPendingChunkRequest(false), pendingChunkIndex(0) {
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = nullptr;
   }
@@ -107,28 +108,50 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   pImageService->start();
   Serial.println("Image Control Service started (3 characteristics)!");
 
-  // Create Data Service for parallel image transfer (4 channels)
-  Serial.println("Creating Image Data Service...");
-  pImageDataService = pServer->createService(BLE_IMAGE_DATA_SERVICE_UUID);
-  Serial.printf("Image Data Service created: %p\n", pImageDataService);
+  // Create Data Service 1 for parallel image transfer (channels 1-4)
+  Serial.println("Creating Image Data Service 1...");
+  pImageDataService1 = pServer->createService(BLE_IMAGE_DATA_SERVICE_1_UUID);
+  Serial.printf("Image Data Service 1 created: %p\n", pImageDataService1);
 
-  // Create Image Data Characteristics (Read/Notify) - Image data chunks (4 channels for parallel transfer)
-  const char *dataUUIDs[BLE_IMAGE_DATA_CHANNELS] = {BLE_CHAR_IMAGE_DATA_1_UUID, BLE_CHAR_IMAGE_DATA_2_UUID,
-                                                    BLE_CHAR_IMAGE_DATA_3_UUID, BLE_CHAR_IMAGE_DATA_4_UUID};
+  // Create Image Data Characteristics for Service 1 (channels 1-4)
+  const char *dataUUIDs1[4] = {BLE_CHAR_IMAGE_DATA_1_UUID, BLE_CHAR_IMAGE_DATA_2_UUID, BLE_CHAR_IMAGE_DATA_3_UUID,
+                               BLE_CHAR_IMAGE_DATA_4_UUID};
 
-  Serial.println("Creating Image Data characteristics...");
-  for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
-    pCharImageData[i] = pImageDataService->createCharacteristic(dataUUIDs[i], BLECharacteristic::PROPERTY_READ |
-                                                                                  BLECharacteristic::PROPERTY_NOTIFY);
+  Serial.println("Creating Image Data characteristics 1-4...");
+  for (int i = 0; i < 4; i++) {
+    pCharImageData[i] = pImageDataService1->createCharacteristic(dataUUIDs1[i], BLECharacteristic::PROPERTY_READ |
+                                                                                     BLECharacteristic::PROPERTY_NOTIFY);
     pCharImageData[i]->addDescriptor(new BLE2902());
     Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
   }
 
-  // Start the data service
-  pImageDataService->start();
-  Serial.println("Image Data Service started (4 parallel channels)!");
+  // Start the data service 1
+  pImageDataService1->start();
+  Serial.println("Image Data Service 1 started (4 parallel channels)!");
 
-  Serial.println("BLE Image Transfer: 2 services started (Control + Data)!");
+  // Create Data Service 2 for parallel image transfer (channels 5-8)
+  Serial.println("Creating Image Data Service 2...");
+  pImageDataService2 = pServer->createService(BLE_IMAGE_DATA_SERVICE_2_UUID);
+  Serial.printf("Image Data Service 2 created: %p\n", pImageDataService2);
+
+  // Create Image Data Characteristics for Service 2 (channels 5-8)
+  const char *dataUUIDs2[4] = {BLE_CHAR_IMAGE_DATA_5_UUID, BLE_CHAR_IMAGE_DATA_6_UUID, BLE_CHAR_IMAGE_DATA_7_UUID,
+                               BLE_CHAR_IMAGE_DATA_8_UUID};
+
+  Serial.println("Creating Image Data characteristics 5-8...");
+  for (int i = 0; i < 4; i++) {
+    pCharImageData[i + 4] =
+        pImageDataService2->createCharacteristic(dataUUIDs2[i], BLECharacteristic::PROPERTY_READ |
+                                                                     BLECharacteristic::PROPERTY_NOTIFY);
+    pCharImageData[i + 4]->addDescriptor(new BLE2902());
+    Serial.printf("Image Data channel %d created: %p\n", i + 5, pCharImageData[i + 4]);
+  }
+
+  // Start the data service 2
+  pImageDataService2->start();
+  Serial.println("Image Data Service 2 started (4 parallel channels)!");
+
+  Serial.println("BLE Image Transfer: 3 services started (Control + Data1 + Data2 = 8 channels)!");
   Serial.println("======================================");
 
   return true;

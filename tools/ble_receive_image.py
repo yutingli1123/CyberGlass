@@ -20,17 +20,22 @@ from datetime import datetime
 
 # BLE Service and Characteristic UUIDs
 IMAGE_SERVICE_UUID = "c6116a0a-b7a0-11f0-880d-6baf85e562fd"  # Control service
-IMAGE_DATA_SERVICE_UUID = "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1"  # Data service (4 parallel channels)
+IMAGE_DATA_SERVICE_1_UUID = "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1"  # Data service 1 (channels 1-4)
+IMAGE_DATA_SERVICE_2_UUID = "e9338c2d-d2e6-11f0-a04f-5d7b0618f9e2"  # Data service 2 (channels 5-8)
 IMAGE_REQUEST_UUID = "e3e6c310-b762-11f0-a4f8-d323d6ee8628"
 IMAGE_INFO_UUID = "f182b9d4-b762-11f0-8cab-7b33d60d040f"
 IMAGE_DATA_1_UUID = "f5009d24-b762-11f0-9826-2f5155dc5a7b"  # Channel 1
 IMAGE_DATA_2_UUID = "a8c72f3e-c1d4-11f0-b2a5-9f4e61bc8d2a"  # Channel 2
 IMAGE_DATA_3_UUID = "b3d84a52-c1d4-11f0-8f7c-1a5d92e3c4b6"  # Channel 3
 IMAGE_DATA_4_UUID = "bd9e5c68-c1d4-11f0-9e4d-3b7a84f5d2c9"  # Channel 4
+IMAGE_DATA_5_UUID = "c84fa74e-d2e6-11f0-9b5e-8e9c1720a1d3"  # Channel 5
+IMAGE_DATA_6_UUID = "d35fb85f-d2e6-11f0-ac6f-9fad2831b2e4"  # Channel 6
+IMAGE_DATA_7_UUID = "de60c960-d2e6-11f0-bd70-a0be3942c3f5"  # Channel 7
+IMAGE_DATA_8_UUID = "e971da71-d2e6-11f0-ce81-b1cf4a53d4e6"  # Channel 8
 IMAGE_CONTROL_UUID = "f79a5a02-b762-11f0-9a55-0fae30ddfe0c"
 
 # Number of parallel data channels
-IMAGE_DATA_CHANNELS = 4
+IMAGE_DATA_CHANNELS = 8
 
 
 class BLEImageReceiver:
@@ -304,15 +309,19 @@ class BLEImageReceiver:
             print("🔍 Discovering services...")
 
             image_control_service = None
-            image_data_service = None
+            image_data_service_1 = None
+            image_data_service_2 = None
 
             for service in client.services:
                 if service.uuid.lower() == IMAGE_SERVICE_UUID.lower():
                     image_control_service = service
                     print(f"✅ Found Image Control service: {service.uuid}")
-                elif service.uuid.lower() == IMAGE_DATA_SERVICE_UUID.lower():
-                    image_data_service = service
-                    print(f"✅ Found Image Data service: {service.uuid}")
+                elif service.uuid.lower() == IMAGE_DATA_SERVICE_1_UUID.lower():
+                    image_data_service_1 = service
+                    print(f"✅ Found Image Data service 1: {service.uuid}")
+                elif service.uuid.lower() == IMAGE_DATA_SERVICE_2_UUID.lower():
+                    image_data_service_2 = service
+                    print(f"✅ Found Image Data service 2: {service.uuid}")
 
             if not image_control_service:
                 print(f"❌ Image Control service not found!")
@@ -324,9 +333,14 @@ class BLEImageReceiver:
                         print(f"     └─ {char.uuid} ({char.properties})")
                 return
 
-            if not image_data_service:
-                print(f"❌ Image Data service not found!")
-                print(f"   Expected UUID: {IMAGE_DATA_SERVICE_UUID}")
+            if not image_data_service_1:
+                print(f"❌ Image Data service 1 not found!")
+                print(f"   Expected UUID: {IMAGE_DATA_SERVICE_1_UUID}")
+                return
+
+            if not image_data_service_2:
+                print(f"❌ Image Data service 2 not found!")
+                print(f"   Expected UUID: {IMAGE_DATA_SERVICE_2_UUID}")
                 return
 
             # Verify all characteristics exist
@@ -350,34 +364,57 @@ class BLEImageReceiver:
                     print(f"   ❌ {name} not found in Control service!")
                     return
 
-            # Data service characteristics
-            data_chars = {
+            # Data service 1 characteristics (channels 1-4)
+            data_chars_1 = {
                 "Image Data 1": IMAGE_DATA_1_UUID,
                 "Image Data 2": IMAGE_DATA_2_UUID,
                 "Image Data 3": IMAGE_DATA_3_UUID,
                 "Image Data 4": IMAGE_DATA_4_UUID
             }
 
-            for name, uuid in data_chars.items():
+            for name, uuid in data_chars_1.items():
                 found = False
-                for char in image_data_service.characteristics:
+                for char in image_data_service_1.characteristics:
                     if char.uuid.lower() == uuid.lower():
                         print(f"   ✅ {name}: {char.uuid}")
                         found = True
                         break
                 if not found:
-                    print(f"   ❌ {name} not found in Data service!")
+                    print(f"   ❌ {name} not found in Data service 1!")
+                    return
+
+            # Data service 2 characteristics (channels 5-8)
+            data_chars_2 = {
+                "Image Data 5": IMAGE_DATA_5_UUID,
+                "Image Data 6": IMAGE_DATA_6_UUID,
+                "Image Data 7": IMAGE_DATA_7_UUID,
+                "Image Data 8": IMAGE_DATA_8_UUID
+            }
+
+            for name, uuid in data_chars_2.items():
+                found = False
+                for char in image_data_service_2.characteristics:
+                    if char.uuid.lower() == uuid.lower():
+                        print(f"   ✅ {name}: {char.uuid}")
+                        found = True
+                        break
+                if not found:
+                    print(f"   ❌ {name} not found in Data service 2!")
                     return
 
             # Subscribe to notifications
             print("🔔 Subscribing to notifications...")
             await client.start_notify(IMAGE_INFO_UUID, self.image_info_callback)
-            # Subscribe to all 4 data channels for parallel transfer
+            # Subscribe to all 8 data channels for parallel transfer
             await client.start_notify(IMAGE_DATA_1_UUID, self.image_data_callback)
             await client.start_notify(IMAGE_DATA_2_UUID, self.image_data_callback)
             await client.start_notify(IMAGE_DATA_3_UUID, self.image_data_callback)
             await client.start_notify(IMAGE_DATA_4_UUID, self.image_data_callback)
-            print("✅ Notifications enabled (1 info + 4 parallel data channels)!")
+            await client.start_notify(IMAGE_DATA_5_UUID, self.image_data_callback)
+            await client.start_notify(IMAGE_DATA_6_UUID, self.image_data_callback)
+            await client.start_notify(IMAGE_DATA_7_UUID, self.image_data_callback)
+            await client.start_notify(IMAGE_DATA_8_UUID, self.image_data_callback)
+            print("✅ Notifications enabled (1 info + 8 parallel data channels)!")
 
             print("\n🎮 Interactive Mode:")
             print("  Commands:")
@@ -422,6 +459,10 @@ class BLEImageReceiver:
                 await client.stop_notify(IMAGE_DATA_2_UUID)
                 await client.stop_notify(IMAGE_DATA_3_UUID)
                 await client.stop_notify(IMAGE_DATA_4_UUID)
+                await client.stop_notify(IMAGE_DATA_5_UUID)
+                await client.stop_notify(IMAGE_DATA_6_UUID)
+                await client.stop_notify(IMAGE_DATA_7_UUID)
+                await client.stop_notify(IMAGE_DATA_8_UUID)
 
 
 async def main():
