@@ -37,7 +37,8 @@ public:
         } else if (command == 1 && value.length() >= 3) {
           // Request specific chunk: [1, chunk_low, chunk_high]
           const uint16_t chunkIndex = static_cast<uint8_t>(value[1]) | (static_cast<uint8_t>(value[2]) << 8);
-          Serial.printf("BLE: Chunk %d request queued\n", chunkIndex);
+          Serial.printf("BLE: Chunk retransmit request - chunk %d (buffer=%p, totalChunks=%d)\n", chunkIndex,
+                        transfer->imageBuffer, transfer->totalChunks);
 
           // Queue the chunk request instead of processing immediately
           transfer->pendingChunkIndex = chunkIndex;
@@ -83,8 +84,8 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
 
   // Create Image Request Characteristic (Write) - Request image capture
   Serial.println("Creating Image Request characteristic...");
-  pCharImageRequest =
-      pImageService->createCharacteristic(BLE_CHAR_IMAGE_REQUEST_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharImageRequest = pImageService->createCharacteristic(
+      BLE_CHAR_IMAGE_REQUEST_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   Serial.printf("Image Request created: %p\n", pCharImageRequest);
   pImageRequestCallbacks = new ImageTransferCallbacks(this);
   pCharImageRequest->setCallbacks(pImageRequestCallbacks);
@@ -98,8 +99,8 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
 
   // Create Image Control Characteristic (Write) - Control transfer
   Serial.println("Creating Image Control characteristic...");
-  pCharImageControl =
-      pImageService->createCharacteristic(BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharImageControl = pImageService->createCharacteristic(
+      BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   pImageControlCallbacks = new ImageTransferCallbacks(this);
   pCharImageControl->setCallbacks(pImageControlCallbacks);
   Serial.printf("Image Control created: %p\n", pCharImageControl);
@@ -374,10 +375,13 @@ void BLEImageTransfer::processPendingRequests() {
     captureAndPrepareImage(pendingResolutionIndex, pendingQuality);
   }
 
-  // Process chunk requests
-  if (hasPendingChunkRequest && imageTransferActive) {
+  // Process chunk requests (allow retransmit as long as buffer exists)
+  if (hasPendingChunkRequest) {
     hasPendingChunkRequest = false;
-    sendImageChunk(pendingChunkIndex);
+    Serial.printf("BLE: Processing chunk request for chunk %d\n", pendingChunkIndex);
+    if (!sendImageChunk(pendingChunkIndex)) {
+      Serial.println("BLE: Failed to send requested chunk");
+    }
   }
 }
 

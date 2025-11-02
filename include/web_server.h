@@ -25,6 +25,7 @@ private:
 
   // API endpoint handlers
   void handleCapture(AsyncWebServerRequest *request);
+  void handleCaptureSingle(AsyncWebServerRequest *request);
   static void handleResolution(AsyncWebServerRequest *request);
   static void handleQuality(AsyncWebServerRequest *request);
   void handleStatus(AsyncWebServerRequest *request) const;

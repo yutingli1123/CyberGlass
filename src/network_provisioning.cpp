@@ -230,12 +230,14 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   pCharPassword->setValue(password.c_str());
 
   // Create External SSID Characteristic (Write) - For sending external Wi-Fi SSID
-  pCharExtSSID = pService->createCharacteristic(BLE_CHAR_EXT_SSID_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharExtSSID = pService->createCharacteristic(BLE_CHAR_EXT_SSID_UUID, BLECharacteristic::PROPERTY_WRITE |
+                                                                            BLECharacteristic::PROPERTY_WRITE_NR);
   pExtSSIDCallbacks = new WiFiProvisioningCallbacks(this);
   pCharExtSSID->setCallbacks(pExtSSIDCallbacks);
 
   // Create External Password Characteristic (Write) - For sending external Wi-Fi password
-  pCharExtPassword = pService->createCharacteristic(BLE_CHAR_EXT_PASSWORD_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharExtPassword = pService->createCharacteristic(
+      BLE_CHAR_EXT_PASSWORD_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   pExtPasswordCallbacks = new WiFiProvisioningCallbacks(this);
   pCharExtPassword->setCallbacks(pExtPasswordCallbacks);
 
@@ -252,7 +254,8 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   pCharSTAIP->setValue("0.0.0.0");
 
   // Create Wi-Fi Mode Characteristic (Write) - Set WiFi mode
-  pCharWiFiMode = pService->createCharacteristic(BLE_CHAR_WIFI_MODE_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharWiFiMode = pService->createCharacteristic(BLE_CHAR_WIFI_MODE_UUID, BLECharacteristic::PROPERTY_WRITE |
+                                                                              BLECharacteristic::PROPERTY_WRITE_NR);
   pWiFiModeCallbacks = new WiFiProvisioningCallbacks(this);
   pCharWiFiMode->setCallbacks(pWiFiModeCallbacks);
 

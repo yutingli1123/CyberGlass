@@ -9,6 +9,10 @@ void WebServerManager::setupRoutes() {
   // Capture single photo (JPEG)
   server->on("/capture", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleCapture(request); });
 
+  // Capture single photo only (JPEG)
+  server->on("/capture_single", HTTP_GET,
+             [this](AsyncWebServerRequest *request) { this->handleCaptureSingle(request); });
+
   // Change resolution
   server->on("/resolution", HTTP_GET, [](AsyncWebServerRequest *request) { handleResolution(request); });
 
@@ -19,7 +23,8 @@ void WebServerManager::setupRoutes() {
   server->on("/status", HTTP_GET, [this](AsyncWebServerRequest *request) { this->handleStatus(request); });
 
   Serial.println("API endpoints configured:");
-  Serial.println("  GET /capture - Capture single photo");
+  Serial.println("  GET /capture - Capture 5-shot burst");
+  Serial.println("  GET /capture_single - Capture single photo");
   Serial.println("  GET /resolution?value=<res> - Change resolution");
   Serial.println("  GET /quality?value=<num> - Change quality");
   Serial.println("  GET /status - Get device status (JSON)");
@@ -169,6 +174,54 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
       AsyncWebServerRequest::beginResponse(200, "multipart/form-data; boundary=" + boundary, buffer, bufferPos);
 
   request->send(response);
+}
+
+void WebServerManager::handleCaptureSingle(AsyncWebServerRequest *request) {
+  // Rate limiting: prevent concurrent requests
+  const unsigned long now = millis();
+  if (now - lastCaptureTime < MIN_CAPTURE_INTERVAL) {
+    request->send(429, "text/plain", "Too many requests");
+    return;
+  }
+
+  // Check PSRAM availability
+  const size_t freePsram = ESP.getFreePsram();
+  if (freePsram < MIN_FREE_PSRAM) {
+    Serial.printf("CaptureSingle: Insufficient PSRAM - %d bytes free\n", freePsram);
+    request->send(503, "text/plain", "Low memory");
+    return;
+  }
+
+  lastCaptureTime = now;
+  Serial.println("CaptureSingle: Starting single shot capture...");
+
+  // Discard stale frame from buffer
+  camera_fb_t *discard = esp_camera_fb_get();
+  if (discard)
+    esp_camera_fb_return(discard);
+
+  // Capture single frame
+  yield(); // Feed watchdog
+  const unsigned long capture_start = millis();
+  camera_fb_t *fb = esp_camera_fb_get();
+  const unsigned long capture_time = millis() - capture_start;
+
+  if (!fb) {
+    Serial.printf("CaptureSingle: FAILED - fb=null (took %lu ms)\n", capture_time);
+    request->send(500, "text/plain", "Camera failed");
+    return;
+  }
+
+  Serial.printf("CaptureSingle: SUCCESS - %d bytes, timestamp=%lu.%06lu, took %lu ms\n", fb->len, fb->timestamp.tv_sec,
+                fb->timestamp.tv_usec, capture_time);
+
+  // Send JPEG directly
+  AsyncWebServerResponse *response = request->beginResponse_P(200, "image/jpeg", fb->buf, fb->len);
+  request->send(response);
+
+  // Return frame buffer
+  esp_camera_fb_return(fb);
+  Serial.println("CaptureSingle: Complete");
 }
 
 void WebServerManager::handleResolution(AsyncWebServerRequest *request) {
