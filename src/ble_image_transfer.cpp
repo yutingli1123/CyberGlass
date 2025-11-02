@@ -81,23 +81,19 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
 
   // Create Image Info Characteristic (Read/Notify) - Image metadata
   Serial.println("Creating Image Info characteristic...");
-  pCharImageInfo = pImageService->createCharacteristic(BLE_CHAR_IMAGE_INFO_UUID, BLECharacteristic::PROPERTY_READ |
-                                                                                     BLECharacteristic::PROPERTY_NOTIFY);
+  pCharImageInfo = pImageService->createCharacteristic(
+      BLE_CHAR_IMAGE_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pCharImageInfo->addDescriptor(new BLE2902());
   Serial.printf("Image Info created: %p\n", pCharImageInfo);
 
   // Create Image Data Characteristics (Read/Notify) - Image data chunks (4 channels for parallel transfer)
-  const char* dataUUIDs[BLE_IMAGE_DATA_CHANNELS] = {
-    BLE_CHAR_IMAGE_DATA_1_UUID,
-    BLE_CHAR_IMAGE_DATA_2_UUID,
-    BLE_CHAR_IMAGE_DATA_3_UUID,
-    BLE_CHAR_IMAGE_DATA_4_UUID
-  };
+  const char *dataUUIDs[BLE_IMAGE_DATA_CHANNELS] = {BLE_CHAR_IMAGE_DATA_1_UUID, BLE_CHAR_IMAGE_DATA_2_UUID,
+                                                    BLE_CHAR_IMAGE_DATA_3_UUID, BLE_CHAR_IMAGE_DATA_4_UUID};
 
   Serial.println("Creating Image Data characteristics...");
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = pImageService->createCharacteristic(dataUUIDs[i], BLECharacteristic::PROPERTY_READ |
-                                                                           BLECharacteristic::PROPERTY_NOTIFY);
+                                                                              BLECharacteristic::PROPERTY_NOTIFY);
     pCharImageData[i]->addDescriptor(new BLE2902());
     Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
   }
@@ -246,7 +242,7 @@ bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
   }
 
   // Send up to 4 chunks in parallel (one per channel)
-  int chunksToSend = min(BLE_IMAGE_DATA_CHANNELS, (int)(totalChunks - chunkIndex));
+  int chunksToSend = min(BLE_IMAGE_DATA_CHANNELS, (int) (totalChunks - chunkIndex));
 
   for (int i = 0; i < chunksToSend; i++) {
     uint16_t currentChunkIndex = chunkIndex + i;
@@ -271,7 +267,8 @@ bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
     currentChunk = currentChunkIndex;
   }
 
-  Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks, chunksToSend);
+  Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks,
+                chunksToSend);
 
   // If we sent the last chunk, mark transfer as complete
   if (chunkIndex + chunksToSend - 1 >= totalChunks - 1) {
