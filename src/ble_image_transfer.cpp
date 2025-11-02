@@ -120,7 +120,7 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   Serial.println("Creating Image Data characteristics 1-4...");
   for (int i = 0; i < 4; i++) {
     pCharImageData[i] = pImageDataService1->createCharacteristic(dataUUIDs1[i], BLECharacteristic::PROPERTY_READ |
-                                                                                     BLECharacteristic::PROPERTY_NOTIFY);
+                                                                                    BLECharacteristic::PROPERTY_NOTIFY);
     pCharImageData[i]->addDescriptor(new BLE2902());
     Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
   }
@@ -140,9 +140,8 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
 
   Serial.println("Creating Image Data characteristics 5-8...");
   for (int i = 0; i < 4; i++) {
-    pCharImageData[i + 4] =
-        pImageDataService2->createCharacteristic(dataUUIDs2[i], BLECharacteristic::PROPERTY_READ |
-                                                                     BLECharacteristic::PROPERTY_NOTIFY);
+    pCharImageData[i + 4] = pImageDataService2->createCharacteristic(
+        dataUUIDs2[i], BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     pCharImageData[i + 4]->addDescriptor(new BLE2902());
     Serial.printf("Image Data channel %d created: %p\n", i + 5, pCharImageData[i + 4]);
   }
