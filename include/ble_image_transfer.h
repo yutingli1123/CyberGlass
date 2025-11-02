@@ -8,8 +8,8 @@
 #include <BLEUtils.h>
 
 // BLE Services for Image Transfer (separate from WiFi provisioning service)
-#define BLE_IMAGE_SERVICE_UUID "c6116a0a-b7a0-11f0-880d-6baf85e562fd"  // Control service (Request, Info, Control)
-#define BLE_IMAGE_DATA_SERVICE_UUID "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1"  // Data service (4 parallel channels)
+#define BLE_IMAGE_SERVICE_UUID "c6116a0a-b7a0-11f0-880d-6baf85e562fd" // Control service (Request, Info, Control)
+#define BLE_IMAGE_DATA_SERVICE_UUID "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1" // Data service (4 parallel channels)
 
 // BLE Characteristics for Image Transfer
 #define BLE_CHAR_IMAGE_REQUEST_UUID                                                                                    \
@@ -52,8 +52,8 @@ public:
 
 private:
   // BLE Image Transfer Services (separate from WiFi service)
-  BLEService *pImageService;      // Control service (Request, Info, Control)
-  BLEService *pImageDataService;  // Data service (4 parallel channels)
+  BLEService *pImageService; // Control service (Request, Info, Control)
+  BLEService *pImageDataService; // Data service (4 parallel channels)
 
   // BLE Image Transfer Characteristics
   BLECharacteristic *pCharImageRequest;

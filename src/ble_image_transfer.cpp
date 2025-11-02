@@ -89,7 +89,8 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
 
   // Create Image Control Characteristic (Write) - Control transfer
   Serial.println("Creating Image Control characteristic...");
-  pCharImageControl = pImageService->createCharacteristic(BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
+  pCharImageControl =
+      pImageService->createCharacteristic(BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
   pImageControlCallbacks = new ImageTransferCallbacks(this);
   pCharImageControl->setCallbacks(pImageControlCallbacks);
   Serial.printf("Image Control created: %p\n", pCharImageControl);
@@ -110,7 +111,7 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   Serial.println("Creating Image Data characteristics...");
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = pImageDataService->createCharacteristic(dataUUIDs[i], BLECharacteristic::PROPERTY_READ |
-                                                                              BLECharacteristic::PROPERTY_NOTIFY);
+                                                                                  BLECharacteristic::PROPERTY_NOTIFY);
     pCharImageData[i]->addDescriptor(new BLE2902());
     Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
   }
