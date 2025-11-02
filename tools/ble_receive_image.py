@@ -124,11 +124,21 @@ class BLEImageReceiver:
         else:
             print(f"📦 Chunk {chunk_index + 1}/{self.total_chunks} ({progress:.1f}%)", end='\r')
 
-        # Request next chunk if needed
+        # Request next batch only when current batch is complete
         if len(self.received_chunks) < self.total_chunks:
-            next_chunk = chunk_index + 1
-            if next_chunk not in self.received_chunks:
-                asyncio.create_task(self.request_chunk(next_chunk))
+            # Calculate current batch boundaries
+            current_batch = chunk_index // IMAGE_DATA_CHANNELS
+            batch_start = current_batch * IMAGE_DATA_CHANNELS
+            batch_end = min(batch_start + IMAGE_DATA_CHANNELS, self.total_chunks)
+
+            # Check if all chunks in current batch are received
+            batch_complete = all(i in self.received_chunks for i in range(batch_start, batch_end))
+
+            # Only request next batch start (4, 8, 12, ...) when current batch is complete
+            if batch_complete:
+                next_batch_start = (current_batch + 1) * IMAGE_DATA_CHANNELS
+                if next_batch_start < self.total_chunks:
+                    asyncio.create_task(self.request_chunk(next_batch_start))
 
     async def request_chunk(self, chunk_index):
         """Request a specific chunk"""
