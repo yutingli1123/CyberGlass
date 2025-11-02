@@ -120,6 +120,7 @@ bool WiFiProvisioning::initBLE() {
 
     // Initialize BLE
     BLEDevice::init(bleName.c_str());
+    BLEDevice::setMTU(517);
 
     // Create BLE Server
     pServer = BLEDevice::createServer();
@@ -167,6 +168,10 @@ void WiFiProvisioning::stopBLE() {
         pServer = nullptr;
         Serial.println("BLE stopped");
     }
+}
+
+BLEServer* WiFiProvisioning::getBLEServer() {
+    return pServer;
 }
 
 void WiFiProvisioning::printStatus() {

@@ -3,6 +3,7 @@
 #include "wifi_provisioning.h"
 #include "web_server.h"
 #include <ESPAsyncWebServer.h>
+#include "ble_image_service.h"
 
 #define LED_PIN 21  // Built-in LED pin for XIAO ESP32S3
 
@@ -10,6 +11,7 @@
 WiFiProvisioning wifiAP;
 AsyncWebServer server(80);
 WebServerManager webServer(&server, &wifiAP);
+BLEImageService bleImageService;
 
 void setup() {
   Serial.begin(921600);         // Initialize serial communication at high speed
@@ -30,6 +32,11 @@ void setup() {
   // Initialize BLE for provisioning
   if (wifiAP.initBLE()) {
     Serial.println("[" + getTimestamp() + "] BLE Provisioning: READY");
+    if (bleImageService.begin(wifiAP.getBLEServer(), wifiAP.getDeviceID())) {
+      Serial.println("[" + getTimestamp() + "] BLE Image Service: READY");
+    } else {
+      Serial.println("[" + getTimestamp() + "] WARNING: BLE Image Service initialization failed");
+    }
   } else {
     Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
   }
@@ -63,6 +70,8 @@ void setup() {
 void loop() {
   // Process camera commands from serial port
   processCameraCommand();
+  // Handle BLE image capture requests
+  bleImageService.loop();
   // Small delay to prevent excessive CPU usage
   delay(10);
 }

@@ -74,6 +74,32 @@ String getTimestamp() {
   return String(buffer);
 }
 
+bool isCameraReady() {
+  return cameraInitialized;
+}
+
+camera_fb_t* acquireFrameBuffer() {
+  if (!cameraInitialized) {
+    return nullptr;
+  }
+  return esp_camera_fb_get();
+}
+
+void releaseFrameBuffer(camera_fb_t* fb) {
+  if (fb) {
+    esp_camera_fb_return(fb);
+  }
+}
+
+uint32_t incrementPhotoCount() {
+  photoCount++;
+  return photoCount;
+}
+
+uint32_t getPhotoCount() {
+  return photoCount;
+}
+
 /**
  * @brief Initialize camera with appropriate settings
  * @return true if successful, false otherwise
@@ -394,17 +420,17 @@ bool capturePhoto() {
   Serial.println("[" + getTimestamp() + "] Capturing photo...");
 
   // Get current frame from buffer (camera continuously captures)
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = acquireFrameBuffer();
   if (!fb) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera capture failed");
     return false;
   }
 
-  photoCount++;
+  uint32_t currentPhoto = incrementPhotoCount();
 
   // Display photo information
   Serial.println("[" + getTimestamp() + "] Photo capture: SUCCESS");
-  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), photoCount);
+  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), currentPhoto);
   Serial.printf("  - Size: %u bytes\n", fb->len);
   Serial.printf("  - Width: %d pixels\n", fb->width);
   Serial.printf("  - Height: %d pixels\n", fb->height);
@@ -416,7 +442,7 @@ bool capturePhoto() {
   // - Process the image
   
   // Release frame buffer
-  esp_camera_fb_return(fb);
+  releaseFrameBuffer(fb);
   Serial.println("[" + getTimestamp() + "] Frame buffer released");
   Serial.println("--- Photo Capture End ---\n");
 
@@ -533,17 +559,17 @@ bool captureAndSendBinary() {
 
   // Get current frame from buffer (camera continuously captures)
   // Note: With CAMERA_GRAB_LATEST mode, this returns the latest frame immediately
-  camera_fb_t *fb = esp_camera_fb_get();
+  camera_fb_t *fb = acquireFrameBuffer();
   if (!fb) {
     Serial.println("[" + getTimestamp() + "] ERROR: Camera capture failed");
     return false;
   }
 
-  photoCount++;
+  uint32_t currentPhoto = incrementPhotoCount();
 
   // Display photo information
   Serial.println("[" + getTimestamp() + "] Photo retrieved: SUCCESS");
-  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), photoCount);
+  Serial.printf("[%s] Photo #%u Information:\n", getTimestamp().c_str(), currentPhoto);
   Serial.printf("  - Size: %u bytes (%.2f KB)\n", fb->len, fb->len / 1024.0);
   Serial.printf("  - Width: %d pixels\n", fb->width);
   Serial.printf("  - Height: %d pixels\n", fb->height);
@@ -582,7 +608,7 @@ bool captureAndSendBinary() {
   Serial.printf("  - Transfer speed: %.2f KB/s\n", (fb->len / 1024.0) / (transfer_time / 1000.0));
   Serial.printf("  - Note: Frame retrieved from continuous buffer (0ms retrieval)\n");
   // Release frame buffer
-  esp_camera_fb_return(fb);
+  releaseFrameBuffer(fb);
   Serial.println("[" + getTimestamp() + "] Frame buffer released");
   Serial.println("--- Photo Capture & Send End ---\n");
 
@@ -657,7 +683,7 @@ void processCameraCommand() {
             Serial.println("[" + getTimestamp() + "] Last error: " + lastInitError);
             Serial.println("[" + getTimestamp() + "] Hint: Try 'init' command to retry");
           }
-          Serial.println("[" + getTimestamp() + "] Total photos taken: " + String(photoCount));
+          Serial.println("[" + getTimestamp() + "] Total photos taken: " + String(getPhotoCount()));
           Serial.println("[" + getTimestamp() + "] PSRAM available: " + 
                          String(psramFound() ? "YES" : "NO"));
           Serial.println("[" + getTimestamp() + "] Free heap: " + String(ESP.getFreeHeap()) + " bytes");

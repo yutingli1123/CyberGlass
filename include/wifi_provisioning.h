@@ -59,6 +59,9 @@ public:
     // Generate device ID from MAC address
     String getDeviceID();
 
+    // Access underlying BLE server (for additional services)
+    BLEServer* getBLEServer();
+
 private:
     bool apRunning;
     IPAddress apIP;

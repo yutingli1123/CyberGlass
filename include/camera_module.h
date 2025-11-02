@@ -53,6 +53,36 @@ bool changeQuality(int quality);
 void startBinaryVideoStream();
 
 /**
+ * @brief Acquire latest frame buffer from camera
+ * @return Pointer to camera frame buffer or nullptr if unavailable
+ */
+camera_fb_t* acquireFrameBuffer();
+
+/**
+ * @brief Return a previously acquired frame buffer to the driver
+ * @param fb Frame buffer pointer obtained from acquireFrameBuffer()
+ */
+void releaseFrameBuffer(camera_fb_t* fb);
+
+/**
+ * @brief Check if camera hardware is initialized
+ * @return true when camera is ready for capture
+ */
+bool isCameraReady();
+
+/**
+ * @brief Increment internal photo counter and return new value
+ * @return Updated photo counter
+ */
+uint32_t incrementPhotoCount();
+
+/**
+ * @brief Get current photo counter without modifying it
+ * @return Number of photos captured since boot
+ */
+uint32_t getPhotoCount();
+
+/**
  * @brief Process serial commands for camera control
  * Commands:
  *   - "capture" or "c": Take a photo and display info
