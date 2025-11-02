@@ -2,38 +2,50 @@
 #include "camera_module.h"
 #include "esp_camera.h"
 
-// BLE Callback class for handling image transfer requests
-class ImageTransferCallbacks final : public BLECharacteristicCallbacks {
+// Simple BLE callback for image request
+class ImageRequestCallback : public BLECharacteristicCallbacks {
   BLEImageTransfer *transfer;
 
 public:
-  explicit ImageTransferCallbacks(BLEImageTransfer *xfer) : transfer(xfer) {}
+  explicit ImageRequestCallback(BLEImageTransfer *xfer) : transfer(xfer) {}
 
   void onWrite(BLECharacteristic *pCharacteristic) override {
-    const std::string uuid = pCharacteristic->getUUID().toString();
-    const std::string value = pCharacteristic->getValue();
+    std::string value = pCharacteristic->getValue();
 
-    if (uuid == BLE_CHAR_IMAGE_REQUEST_UUID) {
-      // Format: [resolution_index, quality]
-      if (value.length() >= 2) {
-        const uint8_t resolutionIndex = static_cast<uint8_t>(value[0]);
-        const uint8_t quality = static_cast<uint8_t>(value[1]);
-        Serial.printf("BLE: Image request - Resolution: %d, Quality: %d\n", resolutionIndex, quality);
-        transfer->captureAndPrepareImage(resolutionIndex, quality);
-      }
-    } else if (uuid == BLE_CHAR_IMAGE_CONTROL_UUID) {
-      if (!value.empty()) {
-        const uint8_t command = static_cast<uint8_t>(value[0]);
-        if (command == 0) {
-          // Cancel transfer
-          Serial.println("BLE: Image transfer cancelled");
-          transfer->cancelImageTransfer();
-        } else if (command == 1 && value.length() >= 3) {
-          // Request specific chunk: [1, chunk_low, chunk_high]
-          const uint16_t chunkIndex = static_cast<uint8_t>(value[1]) | (static_cast<uint8_t>(value[2]) << 8);
-          Serial.printf("BLE: Chunk %d requested\n", chunkIndex);
-          transfer->sendImageChunk(chunkIndex);
-        }
+    Serial.println("\n=== BLE Write Received ===");
+    Serial.printf("Length: %d bytes\n", value.length());
+
+    if (value.length() >= 2) {
+      uint8_t resolution = (uint8_t)value[0];
+      uint8_t quality = (uint8_t)value[1];
+      Serial.printf("Resolution: %d, Quality: %d\n", resolution, quality);
+      Serial.println("========================\n");
+
+      // Capture image
+      transfer->captureAndPrepareImage(resolution, quality);
+    } else {
+      Serial.println("ERROR: Invalid data length");
+      Serial.println("========================\n");
+    }
+  }
+};
+
+// Simple BLE callback for chunk request
+class ChunkRequestCallback : public BLECharacteristicCallbacks {
+  BLEImageTransfer *transfer;
+
+public:
+  explicit ChunkRequestCallback(BLEImageTransfer *xfer) : transfer(xfer) {}
+
+  void onWrite(BLECharacteristic *pCharacteristic) override {
+    std::string value = pCharacteristic->getValue();
+
+    if (value.length() >= 3) {
+      uint8_t cmd = (uint8_t)value[0];
+      if (cmd == 1) {
+        uint16_t chunk = (uint8_t)value[1] | ((uint8_t)value[2] << 8);
+        Serial.printf("Chunk %d requested\n", chunk);
+        transfer->sendImageChunk(chunk);
       }
     }
   }
@@ -42,210 +54,235 @@ public:
 BLEImageTransfer::BLEImageTransfer() :
     pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageData(nullptr), pCharImageControl(nullptr),
     pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), imageBuffer(nullptr), imageSize(0),
-    totalChunks(0), currentChunk(0), imageTransferActive(false) {}
+    totalChunks(0), currentChunk(0), imageTransferActive(false), chunkPayloadSize(BLE_IMAGE_MIN_PAYLOAD),
+    negotiatedMTU(23) {}
 
 bool BLEImageTransfer::initCharacteristics(BLEServer *pServer, BLEService *pService) {
   if (!pServer || !pService) {
-    Serial.println("BLE Image Transfer: Invalid server or service");
+    Serial.println("ERROR: Invalid server or service");
     return false;
   }
 
-  Serial.println("=== Initializing BLE Image Transfer ===");
-  Serial.printf("Service pointer: %p\n", pService);
-  Serial.printf("Server pointer: %p\n", pServer);
+  Serial.println("\n=== Creating BLE Image Characteristics ===");
 
-  // Create Image Request Characteristic (Write) - Request image capture
-  Serial.println("Creating Image Request characteristic...");
-  pCharImageRequest = pService->createCharacteristic(BLE_CHAR_IMAGE_REQUEST_UUID, BLECharacteristic::PROPERTY_WRITE);
-  Serial.printf("Image Request created: %p\n", pCharImageRequest);
-  pImageRequestCallbacks = new ImageTransferCallbacks(this);
+  // 1. Image Request (WRITE) - client sends capture request here
+  pCharImageRequest = pService->createCharacteristic(
+      BLE_CHAR_IMAGE_REQUEST_UUID,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
+  );
+  pCharImageRequest->setAccessPermissions(ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE);
+  pImageRequestCallbacks = new ImageRequestCallback(this);
   pCharImageRequest->setCallbacks(pImageRequestCallbacks);
+  Serial.println("✓ Image Request characteristic created");
 
-  // Create Image Info Characteristic (Read/Notify) - Image metadata
-  Serial.println("Creating Image Info characteristic...");
-  pCharImageInfo = pService->createCharacteristic(BLE_CHAR_IMAGE_INFO_UUID, BLECharacteristic::PROPERTY_READ |
-                                                                                BLECharacteristic::PROPERTY_NOTIFY);
+  // 2. Image Info (READ + NOTIFY) - ESP32 sends image metadata here
+  pCharImageInfo = pService->createCharacteristic(
+      BLE_CHAR_IMAGE_INFO_UUID,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharImageInfo->setAccessPermissions(ESP_GATT_PERM_READ);
   pCharImageInfo->addDescriptor(new BLE2902());
-  const uint8_t initInfo[7] = {0}; // [status, size_low, size_high, size_high2, size_high3, chunks_low, chunks_high]
-  pCharImageInfo->setValue(const_cast<uint8_t *>(initInfo), 7);
-  Serial.printf("Image Info created: %p\n", pCharImageInfo);
+  uint8_t initInfo[7] = {0};
+  pCharImageInfo->setValue(initInfo, 7);
+  Serial.println("✓ Image Info characteristic created");
 
-  // Create Image Data Characteristic (Read/Notify) - Image data chunks
-  Serial.println("Creating Image Data characteristic...");
-  pCharImageData = pService->createCharacteristic(BLE_CHAR_IMAGE_DATA_UUID, BLECharacteristic::PROPERTY_READ |
-                                                                                BLECharacteristic::PROPERTY_NOTIFY);
+  // 3. Image Data (READ + NOTIFY) - ESP32 sends chunks here
+  pCharImageData = pService->createCharacteristic(
+      BLE_CHAR_IMAGE_DATA_UUID,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+  );
+  pCharImageData->setAccessPermissions(ESP_GATT_PERM_READ);
   pCharImageData->addDescriptor(new BLE2902());
-  Serial.printf("Image Data created: %p\n", pCharImageData);
+  Serial.println("✓ Image Data characteristic created");
 
-  // Create Image Control Characteristic (Write) - Control transfer
-  Serial.println("Creating Image Control characteristic...");
-  pCharImageControl = pService->createCharacteristic(BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
-  pImageControlCallbacks = new ImageTransferCallbacks(this);
+  // 4. Image Control (WRITE) - client requests specific chunks
+  pCharImageControl = pService->createCharacteristic(
+      BLE_CHAR_IMAGE_CONTROL_UUID,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
+  );
+  pCharImageControl->setAccessPermissions(ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE);
+  pImageControlCallbacks = new ChunkRequestCallback(this);
   pCharImageControl->setCallbacks(pImageControlCallbacks);
-  Serial.printf("Image Control created: %p\n", pCharImageControl);
+  Serial.println("✓ Image Control characteristic created");
 
-  Serial.println("BLE Image Transfer: ALL 4 characteristics created successfully!");
-  Serial.println("======================================");
-
+  Serial.println("========================================\n");
   return true;
 }
 
-bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, const uint8_t quality) {
-  Serial.println("=== Capturing Image for BLE Transfer ===");
+uint16_t BLEImageTransfer::calculatePayloadSize() const {
+  uint16_t mtu = negotiatedMTU;
 
-  // Cancel any existing transfer
-  cancelImageTransfer();
-
-  // Map resolution index to framesize_t
-  const framesize_t resolutions[] = {FRAMESIZE_QQVGA, // 0: 160x120
-                                     FRAMESIZE_QVGA, // 1: 320x240
-                                     FRAMESIZE_VGA, // 2: 640x480
-                                     FRAMESIZE_SVGA, // 3: 800x600
-                                     FRAMESIZE_XGA, // 4: 1024x768
-                                     FRAMESIZE_HD, // 5: 1280x720
-                                     FRAMESIZE_SXGA, // 6: 1280x1024
-                                     FRAMESIZE_UXGA}; // 7: 1600x1200
-
-  framesize_t targetResolution = FRAMESIZE_QVGA; // Default
-  if (resolutionIndex < 8) {
-    targetResolution = resolutions[resolutionIndex];
+  if (mtu < 23) {
+    mtu = 23;
+  } else if (mtu > 517) {
+    mtu = 517;
   }
 
-  // Change camera settings
-  if (!changeResolution(targetResolution)) {
-    Serial.println("Failed to change resolution");
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
+  if (mtu <= 5) {
+    return BLE_IMAGE_MIN_PAYLOAD;
+  }
+
+  uint16_t payload = mtu - 5; // ATT header (3 bytes) + chunk header (2 bytes)
+  if (payload < BLE_IMAGE_MIN_PAYLOAD) {
+    payload = BLE_IMAGE_MIN_PAYLOAD;
+  }
+  if (payload > BLE_IMAGE_MAX_CHUNK_SIZE) {
+    payload = BLE_IMAGE_MAX_CHUNK_SIZE;
+  }
+
+  return payload;
+}
+
+bool BLEImageTransfer::captureAndPrepareImage(uint8_t resolutionIndex, uint8_t quality) {
+  Serial.println("\n=== Capturing Image ===");
+
+  // Clean up any previous transfer
+  cancelImageTransfer();
+
+  // Resolution map
+  framesize_t resolutions[] = {
+      FRAMESIZE_QQVGA,  // 0: 160x120
+      FRAMESIZE_QVGA,   // 1: 320x240
+      FRAMESIZE_VGA,    // 2: 640x480
+      FRAMESIZE_SVGA,   // 3: 800x600
+      FRAMESIZE_XGA,    // 4: 1024x768
+      FRAMESIZE_HD,     // 5: 1280x720
+      FRAMESIZE_SXGA,   // 6: 1280x1024
+      FRAMESIZE_UXGA    // 7: 1600x1200
+  };
+
+  framesize_t targetRes = FRAMESIZE_QQVGA;
+  if (resolutionIndex < 8) {
+    targetRes = resolutions[resolutionIndex];
+  }
+
+  // Set camera parameters
+  if (!changeResolution(targetRes)) {
+    Serial.println("ERROR: Failed to change resolution");
+    notifyError(2);
     return false;
   }
 
   if (!changeQuality(quality)) {
-    Serial.println("Failed to change quality");
+    Serial.println("WARNING: Failed to change quality");
   }
 
-  delay(100); // Allow camera to adjust
+  delay(100);
+  yield();
 
-  // Capture image
+  // Capture
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("Camera capture failed");
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
+    Serial.println("ERROR: Camera capture failed");
+    notifyError(2);
     return false;
   }
 
-  Serial.printf("Image captured: %d bytes\n", fb->len);
+  Serial.printf("Captured: %d bytes\n", fb->len);
 
-  // Check if image is too large
+  // Check size limit
   if (fb->len > BLE_IMAGE_MAX_SIZE) {
-    Serial.printf("Image too large: %d bytes (max: %d)\n", fb->len, BLE_IMAGE_MAX_SIZE);
+    Serial.printf("ERROR: Image too large (%d > %d)\n", fb->len, BLE_IMAGE_MAX_SIZE);
     esp_camera_fb_return(fb);
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {3, 0, 0, 0, 0, 0, 0}; // Status: 3 = too large
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
+    notifyError(3);
     return false;
   }
 
-  // Allocate buffer and copy image data
-  imageBuffer = static_cast<uint8_t *>(malloc(fb->len));
+  // Allocate buffer
+  imageBuffer = (uint8_t *)malloc(fb->len);
   if (!imageBuffer) {
-    Serial.println("Failed to allocate image buffer");
+    Serial.println("ERROR: Failed to allocate buffer");
     esp_camera_fb_return(fb);
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
+    notifyError(2);
     return false;
   }
 
+  // Copy image data
   memcpy(imageBuffer, fb->buf, fb->len);
   imageSize = fb->len;
   esp_camera_fb_return(fb);
 
-  // Calculate number of chunks
-  totalChunks = (imageSize + BLE_IMAGE_CHUNK_SIZE - 1) / BLE_IMAGE_CHUNK_SIZE;
+  // Calculate chunks
+  chunkPayloadSize = calculatePayloadSize();
+  Serial.printf("BLE negotiated MTU: %u, payload per notification: %u bytes\n", negotiatedMTU, chunkPayloadSize);
+
+  totalChunks = (imageSize + chunkPayloadSize - 1) / chunkPayloadSize;
   currentChunk = 0;
   imageTransferActive = true;
 
-  Serial.printf("Image prepared: %d bytes, %d chunks\n", imageSize, totalChunks);
+  Serial.printf("Ready: %d bytes, %d chunks\n", imageSize, totalChunks);
+  Serial.println("======================\n");
 
-  // Update image info characteristic
-  // Format: [status, size_low, size_mid_low, size_mid_high, size_high, chunks_low, chunks_high]
+  // Send info to client
   if (pCharImageInfo) {
-    uint8_t imageInfo[7];
-    imageInfo[0] = 1; // Status: 1 = ready
-    imageInfo[1] = imageSize & 0xFF;
-    imageInfo[2] = (imageSize >> 8) & 0xFF;
-    imageInfo[3] = (imageSize >> 16) & 0xFF;
-    imageInfo[4] = (imageSize >> 24) & 0xFF;
-    imageInfo[5] = totalChunks & 0xFF;
-    imageInfo[6] = (totalChunks >> 8) & 0xFF;
-    pCharImageInfo->setValue(imageInfo, 7);
+    uint8_t info[7];
+    info[0] = 1; // Status: Ready
+    info[1] = imageSize & 0xFF;
+    info[2] = (imageSize >> 8) & 0xFF;
+    info[3] = (imageSize >> 16) & 0xFF;
+    info[4] = (imageSize >> 24) & 0xFF;
+    info[5] = totalChunks & 0xFF;
+    info[6] = (totalChunks >> 8) & 0xFF;
+    pCharImageInfo->setValue(info, 7);
     pCharImageInfo->notify();
-    Serial.println("Image info sent via BLE");
+    Serial.println("Image info sent");
   }
 
-  // Automatically send first chunk
+  // Send first chunk automatically
+  delay(50);
   sendImageChunk(0);
 
-  Serial.println("======================================");
   return true;
 }
 
-bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
+bool BLEImageTransfer::sendImageChunk(uint16_t chunkIndex) {
   if (!imageTransferActive || !imageBuffer || !pCharImageData) {
-    Serial.println("No active image transfer");
+    Serial.println("ERROR: No active transfer");
     return false;
   }
 
   if (chunkIndex >= totalChunks) {
-    Serial.printf("Invalid chunk index: %d (max: %d)\n", chunkIndex, totalChunks - 1);
+    Serial.printf("ERROR: Invalid chunk %d (max %d)\n", chunkIndex, totalChunks - 1);
     return false;
   }
 
-  // Calculate chunk offset and size
-  const size_t chunkOffset = chunkIndex * BLE_IMAGE_CHUNK_SIZE;
-  size_t chunkSize = BLE_IMAGE_CHUNK_SIZE;
-  if (chunkOffset + chunkSize > imageSize) {
-    chunkSize = imageSize - chunkOffset;
+  // Calculate chunk
+  if (chunkPayloadSize == 0) {
+    Serial.println("ERROR: Invalid chunk payload size");
+    return false;
   }
 
-  // Prepare chunk data: [chunk_index_low, chunk_index_high, ...data...]
-  uint8_t chunkData[BLE_IMAGE_CHUNK_SIZE + 2];
+  size_t offset = static_cast<size_t>(chunkIndex) * chunkPayloadSize;
+  size_t size = chunkPayloadSize;
+  if (offset + size > imageSize) {
+    size = imageSize - offset;
+  }
+
+  // Prepare data: [index_low, index_high, ...data...]
+  uint8_t chunkData[BLE_IMAGE_MAX_CHUNK_SIZE + 2];
   chunkData[0] = chunkIndex & 0xFF;
   chunkData[1] = (chunkIndex >> 8) & 0xFF;
-  memcpy(chunkData + 2, imageBuffer + chunkOffset, chunkSize);
+  memcpy(chunkData + 2, imageBuffer + offset, size);
 
-  // Send chunk
-  pCharImageData->setValue(chunkData, chunkSize + 2);
+  // Send
+  pCharImageData->setValue(chunkData, size + 2);
   pCharImageData->notify();
 
-  currentChunk = chunkIndex;
-  Serial.printf("Sent chunk %d/%d (%d bytes)\n", chunkIndex + 1, totalChunks, chunkSize);
+  Serial.printf("Sent chunk %d/%d (%d bytes)\n", chunkIndex + 1, totalChunks, size);
 
-  // If this was the last chunk, mark transfer as complete
+  // Check if complete
   if (chunkIndex == totalChunks - 1) {
-    Serial.println("Image transfer complete!");
-    // Update status to complete
+    Serial.println("\n✓ Transfer complete!\n");
     if (pCharImageInfo) {
-      uint8_t imageInfo[7];
-      imageInfo[0] = 4; // Status: 4 = complete
-      imageInfo[1] = imageSize & 0xFF;
-      imageInfo[2] = (imageSize >> 8) & 0xFF;
-      imageInfo[3] = (imageSize >> 16) & 0xFF;
-      imageInfo[4] = (imageSize >> 24) & 0xFF;
-      imageInfo[5] = totalChunks & 0xFF;
-      imageInfo[6] = (totalChunks >> 8) & 0xFF;
-      pCharImageInfo->setValue(imageInfo, 7);
+      uint8_t info[7];
+      info[0] = 4; // Status: Complete
+      info[1] = imageSize & 0xFF;
+      info[2] = (imageSize >> 8) & 0xFF;
+      info[3] = (imageSize >> 16) & 0xFF;
+      info[4] = (imageSize >> 24) & 0xFF;
+      info[5] = totalChunks & 0xFF;
+      info[6] = (totalChunks >> 8) & 0xFF;
+      pCharImageInfo->setValue(info, 7);
       pCharImageInfo->notify();
     }
   }
@@ -263,27 +300,49 @@ void BLEImageTransfer::cancelImageTransfer() {
   currentChunk = 0;
   imageTransferActive = false;
 
-  // Update status to idle
   if (pCharImageInfo) {
-    uint8_t imageInfo[7] = {0}; // Status: 0 = idle
-    pCharImageInfo->setValue(imageInfo, 7);
+    uint8_t info[7] = {0}; // Status: Idle
+    pCharImageInfo->setValue(info, 7);
     pCharImageInfo->notify();
   }
 
-  Serial.println("Image transfer cancelled");
+  chunkPayloadSize = BLE_IMAGE_MIN_PAYLOAD;
 }
 
-bool BLEImageTransfer::isImageTransferActive() const { return imageTransferActive; }
+void BLEImageTransfer::notifyError(uint8_t errorCode) {
+  if (pCharImageInfo) {
+    uint8_t info[7] = {0};
+    info[0] = errorCode; // 2=error, 3=too large
+    pCharImageInfo->setValue(info, 7);
+    pCharImageInfo->notify();
+  }
+}
+
+bool BLEImageTransfer::isImageTransferActive() const {
+  return imageTransferActive;
+}
+
+void BLEImageTransfer::updateNegotiatedMTU(uint16_t mtu) {
+  if (mtu < 23) {
+    mtu = 23;
+  } else if (mtu > 517) {
+    mtu = 517;
+  }
+
+  negotiatedMTU = mtu;
+  Serial.printf("BLE MTU updated: %u bytes\n", negotiatedMTU);
+
+  if (imageTransferActive) {
+    Serial.println("WARNING: MTU changed mid-transfer; new size will apply to next capture");
+  }
+}
 
 void BLEImageTransfer::cleanup() {
-  // Clean up image buffer if exists
   cancelImageTransfer();
 
-  // Clean up callback objects to prevent memory leak
   delete pImageRequestCallbacks;
   delete pImageControlCallbacks;
 
-  // Reset pointers
   pImageRequestCallbacks = nullptr;
   pImageControlCallbacks = nullptr;
   pCharImageRequest = nullptr;
@@ -291,5 +350,5 @@ void BLEImageTransfer::cleanup() {
   pCharImageData = nullptr;
   pCharImageControl = nullptr;
 
-  Serial.println("BLE Image Transfer: Cleanup complete");
+  Serial.println("BLE Image Transfer cleaned up");
 }

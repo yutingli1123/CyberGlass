@@ -166,7 +166,7 @@ void WebServerManager::handleCapture(AsyncWebServerRequest *request) {
 
   // Send multipart response
   AsyncWebServerResponse *response =
-      AsyncWebServerRequest::beginResponse(200, "multipart/form-data; boundary=" + boundary, buffer, bufferPos);
+      request->beginResponse(200, "multipart/form-data; boundary=" + boundary, buffer, bufferPos);
 
   request->send(response);
 }

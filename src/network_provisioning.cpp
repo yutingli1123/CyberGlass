@@ -1,8 +1,14 @@
 #include "network_provisioning.h"
 #include "ble_image_transfer.h"
+#include <esp_err.h>
 
 // BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
+  BLEImageTransfer *imageTransfer;
+
+public:
+  explicit CyberGlassBLEServerCallbacks(BLEImageTransfer *transfer) : imageTransfer(transfer) {}
+
   void onConnect(BLEServer *pServer) override { Serial.println("BLE: Client connected"); }
 
   void onDisconnect(BLEServer *pServer) override {
@@ -11,6 +17,18 @@ class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
     delay(500); // Give some time for cleanup
     BLEDevice::startAdvertising();
     Serial.println("BLE: Advertising restarted");
+  }
+
+  void onMtuChanged(BLEServer *pServer, esp_ble_gatts_cb_param_t *param) override {
+    if (!param)
+      return;
+
+    const uint16_t mtu = param->mtu.mtu;
+    Serial.printf("BLE: MTU negotiated = %u bytes\n", mtu);
+
+    if (imageTransfer) {
+      imageTransfer->updateNegotiatedMTU(mtu);
+    }
   }
 };
 
@@ -207,6 +225,13 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
 
   // Initialize BLE
   BLEDevice::init(bleName.c_str());
+  const esp_err_t mtuStatus = BLEDevice::setMTU(517);
+  if (mtuStatus == ESP_OK) {
+    Serial.println("BLE MTU request: 517 bytes (max)");
+  } else {
+    Serial.printf("BLE MTU request failed: 0x%X\n", mtuStatus);
+  }
+  Serial.printf("BLE initial MTU: %u bytes\n", BLEDevice::getMTU());
 
   Serial.println("BLE initialized (no pairing required)");
   Serial.println("Security will be enforced via WiFi network and web interface");
@@ -215,7 +240,7 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   pServer = BLEDevice::createServer();
 
   // Set server callbacks for connection/disconnection events
-  pServerCallbacks = new CyberGlassBLEServerCallbacks();
+  pServerCallbacks = new CyberGlassBLEServerCallbacks(imageTransfer);
   pServer->setCallbacks(pServerCallbacks);
 
   // Create BLE Service
@@ -256,20 +281,31 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   pWiFiModeCallbacks = new WiFiProvisioningCallbacks(this);
   pCharWiFiMode->setCallbacks(pWiFiModeCallbacks);
 
-  // Initialize BLE Image Transfer characteristics BEFORE starting service
+  // Start WiFi provisioning service
+  pService->start();
+  Serial.println("WiFi provisioning service started");
+
+  // Create SEPARATE BLE service for image transfer to avoid characteristic limit
+  BLEService *pImageService = nullptr;
   if (imageTransfer) {
+    Serial.println("Creating separate BLE service for image transfer...");
+    pImageService = pServer->createService(BLE_IMAGE_SERVICE_UUID);
+
     Serial.println("Adding BLE Image Transfer characteristics...");
-    if (!imageTransfer->initCharacteristics(pServer, pService)) {
+    if (!imageTransfer->initCharacteristics(pServer, pImageService)) {
       Serial.println("WARNING: Failed to add image transfer characteristics");
+    } else {
+      pImageService->start();
+      Serial.println("SUCCESS: Image transfer service started!");
     }
   }
 
-  // Start service
-  pService->start();
-
-  // Start advertising
+  // Start advertising (advertise both services)
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
+  if (pImageService) {
+    pAdvertising->addServiceUUID(BLE_IMAGE_SERVICE_UUID);
+  }
   pAdvertising->setScanResponse(true);
   pAdvertising->setMinPreferred(0x06);
   pAdvertising->setMinPreferred(0x12);
