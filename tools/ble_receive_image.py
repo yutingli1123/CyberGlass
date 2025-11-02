@@ -46,6 +46,7 @@ class BLEImageReceiver:
         self.transfer_active = False
         self.transfer_start_time = None
         self.first_chunk_time = None
+        self.missing_chunks_requested = False
 
         os.makedirs(output_dir, exist_ok=True)
 
@@ -87,6 +88,7 @@ class BLEImageReceiver:
             self.transfer_active = True
             self.transfer_start_time = time.time()
             self.first_chunk_time = None
+            self.missing_chunks_requested = False
         elif status == 2:
             print("❌ Image capture error")
             self.transfer_active = False
@@ -94,8 +96,8 @@ class BLEImageReceiver:
             print("❌ Image too large")
             self.transfer_active = False
         elif status == 4:
-            print("✅ Image transfer complete!")
-            asyncio.create_task(self.save_image())
+            print("✅ ESP32 reports transfer complete!")
+            asyncio.create_task(self.verify_and_complete())
 
     def image_data_callback(self, sender, data):
         """Handle image data chunk notifications"""
@@ -124,24 +126,10 @@ class BLEImageReceiver:
         else:
             print(f"📦 Chunk {chunk_index + 1}/{self.total_chunks} ({progress:.1f}%)", end='\r')
 
-        # Request next batch only when current batch is complete
-        if len(self.received_chunks) < self.total_chunks:
-            # Calculate current batch boundaries
-            current_batch = chunk_index // IMAGE_DATA_CHANNELS
-            batch_start = current_batch * IMAGE_DATA_CHANNELS
-            batch_end = min(batch_start + IMAGE_DATA_CHANNELS, self.total_chunks)
-
-            # Check if all chunks in current batch are received
-            batch_complete = all(i in self.received_chunks for i in range(batch_start, batch_end))
-
-            # Only request next batch start (4, 8, 12, ...) when current batch is complete
-            if batch_complete:
-                next_batch_start = (current_batch + 1) * IMAGE_DATA_CHANNELS
-                if next_batch_start < self.total_chunks:
-                    asyncio.create_task(self.request_chunk(next_batch_start))
+        # No need to request next chunks - ESP32 auto-sends all chunks
 
     async def request_chunk(self, chunk_index):
-        """Request a specific chunk"""
+        """Request a specific chunk (for retransmit)"""
         if not self.client or not self.transfer_active:
             return
 
@@ -153,6 +141,43 @@ class BLEImageReceiver:
             await self.client.write_gatt_char(IMAGE_CONTROL_UUID, command, response=False)
         except Exception as e:
             print(f"\n❌ Error requesting chunk {chunk_index}: {e}")
+
+    async def verify_and_complete(self):
+        """Verify integrity, request missing chunks, and save image"""
+        if not self.transfer_active:
+            return
+
+        # Give last few notifications time to arrive
+        await asyncio.sleep(0.1)
+
+        # Check for missing chunks
+        missing = []
+        for i in range(self.total_chunks):
+            if i not in self.received_chunks:
+                missing.append(i)
+
+        if missing and not self.missing_chunks_requested:
+            print(f"\n⚠️  Missing {len(missing)} chunks: {missing[:10]}{'...' if len(missing) > 10 else ''}")
+            print(f"📡 Requesting retransmit...")
+            self.missing_chunks_requested = True
+
+            # Request all missing chunks
+            for chunk_idx in missing:
+                await self.request_chunk(chunk_idx)
+                await asyncio.sleep(0.01)  # Small delay to avoid congestion
+
+            # Wait for retransmit, then verify again
+            await asyncio.sleep(0.5)
+            await self.verify_and_complete()  # Recursive check
+
+        elif missing:
+            print(f"\n❌ Still missing chunks after retransmit: {missing}")
+            self.transfer_active = False
+
+        else:
+            # All chunks received!
+            print(f"\n✅ All {self.total_chunks} chunks received!")
+            await self.save_image()
 
     async def save_image(self):
         """Reconstruct and save the image from chunks"""
@@ -195,6 +220,14 @@ class BLEImageReceiver:
         print(f"   📶 Transfer time: {transfer_time:.2f}s")
         print(f"   🚀 Throughput: {throughput / 1024:.2f} KB/s ({throughput * 8 / 1024:.2f} kbps)")
         print(f"   📅 Timestamp: {timestamp}\n")
+
+        # Send confirmation to ESP32 to release buffer
+        try:
+            if self.client and self.client.is_connected:
+                await self.client.write_gatt_char(IMAGE_CONTROL_UUID, bytes([2]), response=False)
+                print("📤 Sent confirmation to ESP32")
+        except Exception as e:
+            print(f"⚠️  Could not send confirmation: {e}")
 
         self.transfer_active = False
         self.received_chunks = {}

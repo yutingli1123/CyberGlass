@@ -42,6 +42,14 @@ public:
           // Queue the chunk request instead of processing immediately
           transfer->pendingChunkIndex = chunkIndex;
           transfer->hasPendingChunkRequest = true;
+        } else if (command == 2) {
+          // Confirm complete - Python received all data successfully
+          Serial.println("BLE: Transfer confirmed complete by client, releasing buffer");
+          if (transfer->imageBuffer) {
+            free(transfer->imageBuffer);
+            transfer->imageBuffer = nullptr;
+          }
+          transfer->imageTransferActive = false;
         }
       }
     }
@@ -235,16 +243,42 @@ bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, con
     Serial.println("Image info sent via BLE");
   }
 
-  // Automatically send first chunk
-  sendImageChunk(0);
+  // Automatically send all chunks in batches
+  Serial.println("Auto-sending all chunks...");
+  for (uint16_t i = 0; i < totalChunks; i += BLE_IMAGE_DATA_CHANNELS) {
+    sendImageChunk(i);
+    delay(15); // Small delay to prevent BLE queue overflow
 
+    // Print progress every few batches
+    if (i % 16 == 0 || i + BLE_IMAGE_DATA_CHANNELS >= totalChunks) {
+      uint16_t sent = (i + BLE_IMAGE_DATA_CHANNELS > totalChunks) ? totalChunks : i + BLE_IMAGE_DATA_CHANNELS;
+      Serial.printf("Progress: sent up to chunk %d/%d\n", sent, totalChunks);
+    }
+  }
+
+  // Send transfer complete notification
+  if (pCharImageInfo) {
+    uint8_t completeInfo[7];
+    completeInfo[0] = 4; // Status: 4 = complete
+    completeInfo[1] = imageSize & 0xFF;
+    completeInfo[2] = (imageSize >> 8) & 0xFF;
+    completeInfo[3] = (imageSize >> 16) & 0xFF;
+    completeInfo[4] = (imageSize >> 24) & 0xFF;
+    completeInfo[5] = totalChunks & 0xFF;
+    completeInfo[6] = (totalChunks >> 8) & 0xFF;
+    pCharImageInfo->setValue(completeInfo, 7);
+    pCharImageInfo->notify();
+  }
+
+  Serial.println("All chunks sent, awaiting client confirmation...");
   Serial.println("======================================");
   return true;
 }
 
 bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
-  if (!imageTransferActive || !imageBuffer) {
-    Serial.println("No active image transfer");
+  // Allow sending if buffer exists (supports both auto-send and retransmit)
+  if (!imageBuffer) {
+    Serial.println("No image buffer available");
     return false;
   }
 
@@ -282,31 +316,8 @@ bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
   Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks,
                 chunksToSend);
 
-  // If we sent the last chunk, mark transfer as complete
-  if (chunkIndex + chunksToSend - 1 >= totalChunks - 1) {
-    Serial.println("Image transfer complete!");
-    // Update status to complete
-    if (pCharImageInfo) {
-      uint8_t imageInfo[7];
-      imageInfo[0] = 4; // Status: 4 = complete
-      imageInfo[1] = imageSize & 0xFF;
-      imageInfo[2] = (imageSize >> 8) & 0xFF;
-      imageInfo[3] = (imageSize >> 16) & 0xFF;
-      imageInfo[4] = (imageSize >> 24) & 0xFF;
-      imageInfo[5] = totalChunks & 0xFF;
-      imageInfo[6] = (totalChunks >> 8) & 0xFF;
-      pCharImageInfo->setValue(imageInfo, 7);
-      pCharImageInfo->notify();
-    }
-
-    // Free the image buffer and reset transfer state
-    if (imageBuffer) {
-      free(imageBuffer);
-      imageBuffer = nullptr;
-    }
-    imageTransferActive = false;
-    Serial.println("Transfer state reset, ready for next capture");
-  }
+  // Note: Buffer is NOT freed here to support retransmit requests
+  // It will be freed when a new capture request comes or in cancelImageTransfer()
 
   return true;
 }
