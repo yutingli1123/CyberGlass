@@ -49,10 +49,10 @@ public:
 };
 
 BLEImageTransfer::BLEImageTransfer() :
-    pImageService(nullptr), pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageControl(nullptr),
-    pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), imageBuffer(nullptr), imageSize(0),
-    totalChunks(0), currentChunk(0), imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0),
-    pendingQuality(0), hasPendingChunkRequest(false), pendingChunkIndex(0) {
+    pImageService(nullptr), pImageDataService(nullptr), pCharImageRequest(nullptr), pCharImageInfo(nullptr),
+    pCharImageControl(nullptr), pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), imageBuffer(nullptr),
+    imageSize(0), totalChunks(0), currentChunk(0), imageTransferActive(false), hasPendingRequest(false),
+    pendingResolutionIndex(0), pendingQuality(0), hasPendingChunkRequest(false), pendingChunkIndex(0) {
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = nullptr;
   }
@@ -64,12 +64,13 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
     return false;
   }
 
-  Serial.println("=== Initializing BLE Image Transfer Service ===");
+  Serial.println("=== Initializing BLE Image Transfer Services ===");
   Serial.printf("Server pointer: %p\n", pServer);
 
-  // Create separate BLE Service for Image Transfer
+  // Create Control Service for Image Transfer (Request, Info, Control)
+  Serial.println("Creating Image Control Service...");
   pImageService = pServer->createService(BLE_IMAGE_SERVICE_UUID);
-  Serial.printf("Image Service created: %p\n", pImageService);
+  Serial.printf("Image Control Service created: %p\n", pImageService);
 
   // Create Image Request Characteristic (Write) - Request image capture
   Serial.println("Creating Image Request characteristic...");
@@ -86,18 +87,6 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   pCharImageInfo->addDescriptor(new BLE2902());
   Serial.printf("Image Info created: %p\n", pCharImageInfo);
 
-  // Create Image Data Characteristics (Read/Notify) - Image data chunks (4 channels for parallel transfer)
-  const char *dataUUIDs[BLE_IMAGE_DATA_CHANNELS] = {BLE_CHAR_IMAGE_DATA_1_UUID, BLE_CHAR_IMAGE_DATA_2_UUID,
-                                                    BLE_CHAR_IMAGE_DATA_3_UUID, BLE_CHAR_IMAGE_DATA_4_UUID};
-
-  Serial.println("Creating Image Data characteristics...");
-  for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
-    pCharImageData[i] = pImageService->createCharacteristic(dataUUIDs[i], BLECharacteristic::PROPERTY_READ |
-                                                                              BLECharacteristic::PROPERTY_NOTIFY);
-    pCharImageData[i]->addDescriptor(new BLE2902());
-    Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
-  }
-
   // Create Image Control Characteristic (Write) - Control transfer
   Serial.println("Creating Image Control characteristic...");
   pCharImageControl = pImageService->createCharacteristic(BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE);
@@ -105,10 +94,32 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   pCharImageControl->setCallbacks(pImageControlCallbacks);
   Serial.printf("Image Control created: %p\n", pCharImageControl);
 
-  // Start the image service
+  // Start the control service
   pImageService->start();
+  Serial.println("Image Control Service started (3 characteristics)!");
 
-  Serial.println("BLE Image Transfer: Service started with 7 characteristics (4 parallel data channels)!");
+  // Create Data Service for parallel image transfer (4 channels)
+  Serial.println("Creating Image Data Service...");
+  pImageDataService = pServer->createService(BLE_IMAGE_DATA_SERVICE_UUID);
+  Serial.printf("Image Data Service created: %p\n", pImageDataService);
+
+  // Create Image Data Characteristics (Read/Notify) - Image data chunks (4 channels for parallel transfer)
+  const char *dataUUIDs[BLE_IMAGE_DATA_CHANNELS] = {BLE_CHAR_IMAGE_DATA_1_UUID, BLE_CHAR_IMAGE_DATA_2_UUID,
+                                                    BLE_CHAR_IMAGE_DATA_3_UUID, BLE_CHAR_IMAGE_DATA_4_UUID};
+
+  Serial.println("Creating Image Data characteristics...");
+  for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
+    pCharImageData[i] = pImageDataService->createCharacteristic(dataUUIDs[i], BLECharacteristic::PROPERTY_READ |
+                                                                              BLECharacteristic::PROPERTY_NOTIFY);
+    pCharImageData[i]->addDescriptor(new BLE2902());
+    Serial.printf("Image Data channel %d created: %p\n", i + 1, pCharImageData[i]);
+  }
+
+  // Start the data service
+  pImageDataService->start();
+  Serial.println("Image Data Service started (4 parallel channels)!");
+
+  Serial.println("BLE Image Transfer: 2 services started (Control + Data)!");
   Serial.println("======================================");
 
   return true;
@@ -349,7 +360,9 @@ void BLEImageTransfer::cleanup() {
   pImageControlCallbacks = nullptr;
   pCharImageRequest = nullptr;
   pCharImageInfo = nullptr;
-  pCharImageData = nullptr;
+  for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
+    pCharImageData[i] = nullptr;
+  }
   pCharImageControl = nullptr;
 
   Serial.println("BLE Image Transfer: Cleanup complete");
