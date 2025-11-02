@@ -113,6 +113,9 @@ void setup() {
 }
 
 void loop() {
+  // Process pending BLE image requests
+  bleImageTransfer.processPendingRequests();
+
   // Yield to WiFi tasks
   yield();
 }

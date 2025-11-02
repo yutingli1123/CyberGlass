@@ -256,16 +256,16 @@ bool NetworkProvisioning::initBLE(BLEImageTransfer *imageTransfer) {
   pWiFiModeCallbacks = new WiFiProvisioningCallbacks(this);
   pCharWiFiMode->setCallbacks(pWiFiModeCallbacks);
 
-  // Initialize BLE Image Transfer characteristics BEFORE starting service
+  // Start WiFi provisioning service
+  pService->start();
+
+  // Initialize BLE Image Transfer as separate service
   if (imageTransfer) {
-    Serial.println("Adding BLE Image Transfer characteristics...");
-    if (!imageTransfer->initCharacteristics(pServer, pService)) {
-      Serial.println("WARNING: Failed to add image transfer characteristics");
+    Serial.println("Initializing BLE Image Transfer service...");
+    if (!imageTransfer->initService(pServer)) {
+      Serial.println("WARNING: Failed to initialize image transfer service");
     }
   }
-
-  // Start service
-  pService->start();
 
   // Start advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
