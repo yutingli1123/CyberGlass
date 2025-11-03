@@ -45,7 +45,7 @@ public:
 
   // Image Transfer Functions
   bool captureAndPrepareImage(uint8_t resolutionIndex, uint8_t quality);
-  bool sendImageChunk(uint16_t chunkIndex);
+  bool sendImageChunk(uint16_t chunkIndex, int count = -1); // count=-1: send batch, count=1: send single
   void cancelImageTransfer();
   bool isImageTransferActive() const;
 

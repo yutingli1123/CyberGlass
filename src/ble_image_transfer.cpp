@@ -298,7 +298,7 @@ bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, con
   return true;
 }
 
-bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
+bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex, const int count) {
   // Allow sending if buffer exists (supports both auto-send and retransmit)
   if (!imageBuffer) {
     Serial.println("No image buffer available");
@@ -310,8 +310,15 @@ bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex) {
     return false;
   }
 
-  // Send up to 4 chunks in parallel (one per channel)
-  int chunksToSend = min(BLE_IMAGE_DATA_CHANNELS, (int) (totalChunks - chunkIndex));
+  // Determine how many chunks to send
+  int chunksToSend;
+  if (count == -1) {
+    // Batch mode: send up to 8 chunks in parallel (one per channel)
+    chunksToSend = min(BLE_IMAGE_DATA_CHANNELS, (int) (totalChunks - chunkIndex));
+  } else {
+    // Single/specified mode: send exact count requested
+    chunksToSend = min(count, (int) (totalChunks - chunkIndex));
+  }
 
   for (int i = 0; i < chunksToSend; i++) {
     uint16_t currentChunkIndex = chunkIndex + i;
@@ -378,8 +385,8 @@ void BLEImageTransfer::processPendingRequests() {
   // Process chunk requests (allow retransmit as long as buffer exists)
   if (hasPendingChunkRequest) {
     hasPendingChunkRequest = false;
-    Serial.printf("BLE: Processing chunk request for chunk %d\n", pendingChunkIndex);
-    if (!sendImageChunk(pendingChunkIndex)) {
+    Serial.printf("BLE: Processing retransmit request for chunk %d (single)\n", pendingChunkIndex);
+    if (!sendImageChunk(pendingChunkIndex, 1)) { // Send only 1 chunk for retransmit
       Serial.println("BLE: Failed to send requested chunk");
     }
   }
