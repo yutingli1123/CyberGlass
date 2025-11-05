@@ -52,6 +52,9 @@ public:
   void cancelImageTransfer();
   bool isImageTransferActive() const;
 
+  // Get device name
+  String getDeviceName() const;
+
   // Process pending requests (call from main loop)
   void processPendingRequests();
 
@@ -90,9 +93,13 @@ private:
   uint8_t pendingResolutionIndex;
   uint8_t pendingQuality;
 
-  // Pending chunk requests
-  volatile bool hasPendingChunkRequest;
-  uint16_t pendingChunkIndex;
+  // Pending chunk requests (batch retransmit support)
+  volatile bool hasPendingChunkRequests;
+  uint16_t pendingChunkIndexes[256];  // Fixed size array (max 256 chunks to retransmit at once)
+  volatile uint8_t pendingChunkCount;
+
+  // Device name storage
+  char deviceName[32];
 
   // Friend class for callbacks
   friend class ImageTransferCallbacks;

@@ -133,19 +133,28 @@ class BLEImageReceiver:
 
         # No need to request next chunks - ESP32 auto-sends all chunks
 
-    async def request_chunk(self, chunk_index):
-        """Request a specific chunk (for retransmit)"""
-        if not self.client or not self.transfer_active:
+    async def request_chunks(self, chunk_indexes):
+        """Request multiple chunks for retransmit (batch mode)
+        
+        Protocol: [1, count, chunk1_low, chunk1_high, chunk2_low, chunk2_high, ...]
+        """
+        if not self.client or not self.transfer_active or not chunk_indexes:
             return
 
         try:
             if not self.client or not self.client.is_connected:
                 return
 
-            command = bytes([1, chunk_index & 0xFF, (chunk_index >> 8) & 0xFF])
-            await self.client.write_gatt_char(IMAGE_CONTROL_UUID, command, response=False)
+            # Build batch request command
+            command = bytearray([1, len(chunk_indexes)])  # Command 1 = retransmit, count
+            for chunk_idx in chunk_indexes:
+                command.append(chunk_idx & 0xFF)
+                command.append((chunk_idx >> 8) & 0xFF)
+            
+            await self.client.write_gatt_char(IMAGE_CONTROL_UUID, bytes(command), response=False)
+            print(f"📡 Batch retransmit request sent: {len(chunk_indexes)} chunks")
         except Exception as e:
-            print(f"\n❌ Error requesting chunk {chunk_index}: {e}")
+            print(f"\n❌ Error requesting chunks: {e}")
 
     async def verify_and_complete(self):
         """Verify integrity, request missing chunks, and save image"""
@@ -163,16 +172,14 @@ class BLEImageReceiver:
 
         if missing and not self.missing_chunks_requested:
             print(f"\n⚠️  Missing {len(missing)} chunks: {missing[:10]}{'...' if len(missing) > 10 else ''}")
-            print(f"📡 Requesting retransmit...")
+            print(f"📡 Requesting batch retransmit (parallel, 8 channels)...")
             self.missing_chunks_requested = True
 
-            # Request all missing chunks
-            for chunk_idx in missing:
-                await self.request_chunk(chunk_idx)
-                await asyncio.sleep(0.01)  # Small delay to avoid congestion
+            # Send batch request (all missing chunks at once)
+            await self.request_chunks(missing)
 
             # Wait for retransmit, then verify again
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)  # Longer wait for batch transfer
             await self.verify_and_complete()  # Recursive check
 
         elif missing:

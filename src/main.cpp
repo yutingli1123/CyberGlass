@@ -31,7 +31,7 @@ void setup() {
 
   // Print connection information
   Serial.println("\n========================================");
-  Serial.println("BLE Device Name: CyberGlass");
+  Serial.println("BLE Device Name: " + bleImageTransfer.getDeviceName());
   Serial.println("Use a BLE scanner app to:");
   Serial.println("  - Request and transfer images via BLE");
   Serial.println("\nNote: BLE is open for connections (within range ~10m)");
