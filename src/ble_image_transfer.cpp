@@ -51,22 +51,49 @@ public:
           Serial.println("BLE: Image transfer cancelled");
           transfer->cancelImageTransfer();
         } else if (command == 1 && value.length() >= 3) {
-          // Batch retransmit: [1, count, chunk1_low, chunk1_high, chunk2_low, chunk2_high, ...]
+          // Single-batch retransmit: [1, count, chunk1_low, chunk1_high, ...]
+          // Note: Due to BLE 20-byte limit, Python sends multiple small batches
           const uint8_t count = static_cast<uint8_t>(value[1]);
           
-          Serial.printf("BLE: Batch retransmit request - %d chunks\n", count);
+          Serial.printf("BLE: Retransmit request - %d chunks (total data: %d bytes)\n", count, value.length());
           
-          transfer->pendingChunkCount = 0;
-          for (int i = 0; i < count && i < 256 && (2 + i*2 + 1) < value.length(); i++) {
+          // Parse and immediately retransmit this batch
+          if (!transfer->imageBuffer) {
+            Serial.println("BLE: Cannot retransmit - buffer released");
+            return;
+          }
+          
+          uint8_t actualCount = 0;
+          for (int i = 0; i < count && (2 + i*2 + 1) < value.length(); i++) {
             const uint16_t chunkIndex = static_cast<uint8_t>(value[2 + i*2]) | 
                                        (static_cast<uint8_t>(value[2 + i*2 + 1]) << 8);
-            transfer->pendingChunkIndexes[transfer->pendingChunkCount++] = chunkIndex;
-            Serial.printf("  - Chunk %d\n", chunkIndex);
+            
+            if (chunkIndex >= transfer->totalChunks) {
+              Serial.printf("  Invalid chunk %d\n", chunkIndex);
+              continue;
+            }
+            
+            // Calculate chunk offset and size
+            const size_t chunkOffset = chunkIndex * BLE_IMAGE_CHUNK_SIZE;
+            size_t chunkSize = BLE_IMAGE_CHUNK_SIZE;
+            if (chunkOffset + chunkSize > transfer->imageSize) {
+              chunkSize = transfer->imageSize - chunkOffset;
+            }
+            
+            // Prepare and send chunk immediately
+            uint8_t chunkData[BLE_IMAGE_CHUNK_SIZE + 2];
+            chunkData[0] = chunkIndex & 0xFF;
+            chunkData[1] = (chunkIndex >> 8) & 0xFF;
+            memcpy(chunkData + 2, transfer->imageBuffer + chunkOffset, chunkSize);
+            
+            transfer->pCharImageData[actualCount % BLE_IMAGE_DATA_CHANNELS]->setValue(chunkData, chunkSize + 2);
+            transfer->pCharImageData[actualCount % BLE_IMAGE_DATA_CHANNELS]->notify();
+            
+            Serial.printf("  Retransmitted chunk %d\n", chunkIndex);
+            actualCount++;
           }
           
-          if (transfer->pendingChunkCount > 0) {
-            transfer->hasPendingChunkRequests = true;
-          }
+          Serial.printf("BLE: Retransmitted %d chunks from this batch\n", actualCount);
         } else if (command == 2) {
           // Confirm complete - Python received all data successfully
           Serial.println("BLE: Transfer confirmed complete by client, releasing buffer");
@@ -315,7 +342,7 @@ bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, con
   Serial.println("Auto-sending all chunks...");
   for (uint16_t i = 0; i < totalChunks; i += BLE_IMAGE_DATA_CHANNELS) {
     sendImageChunk(i);
-    delay(15); // Small delay to prevent BLE queue overflow
+    delay(30); // Delay to prevent BLE queue overflow (HD needs more time)
 
     // Print progress every few batches
     if (i % 16 == 0 || i + BLE_IMAGE_DATA_CHANNELS >= totalChunks) {
@@ -422,19 +449,18 @@ bool BLEImageTransfer::isImageTransferActive() const { return imageTransferActiv
 String BLEImageTransfer::getDeviceName() const { return String(deviceName); }
 
 void BLEImageTransfer::processPendingRequests() {
-  // Process image capture requests
-  if (hasPendingRequest && !imageTransferActive) {
-    hasPendingRequest = false;
-    Serial.println("BLE: Processing pending image request");
-    captureAndPrepareImage(pendingResolutionIndex, pendingQuality);
-  }
-
-  // Process batch chunk retransmit requests (parallel, like initial transfer)
+  // Process batch chunk retransmit requests FIRST (before new image requests)
   if (hasPendingChunkRequests) {
     hasPendingChunkRequests = false;
     
     if (pendingChunkCount == 0) {
       Serial.println("BLE: No chunks to retransmit");
+      return;
+    }
+    
+    if (!imageBuffer) {
+      Serial.println("BLE: Cannot retransmit - image buffer already released");
+      pendingChunkCount = 0;
       return;
     }
     
@@ -473,11 +499,18 @@ void BLEImageTransfer::processPendingRequests() {
       }
       
       Serial.printf("BLE: Retransmitted batch %u-%u/%u\n", i, i + batchSize - 1, totalToSend - 1);
-      delay(15);  // Same delay as initial transfer to prevent BLE queue overflow
+      delay(30);  // Delay to prevent BLE queue overflow (HD needs more time)
     }
     
     pendingChunkCount = 0;
     Serial.println("BLE: Batch retransmit complete");
+  }
+  
+  // Process image capture requests (after retransmit is done)
+  if (hasPendingRequest && !imageTransferActive) {
+    hasPendingRequest = false;
+    Serial.println("BLE: Processing pending image request");
+    captureAndPrepareImage(pendingResolutionIndex, pendingQuality);
   }
 }
 

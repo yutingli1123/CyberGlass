@@ -92,7 +92,7 @@ CyberGlass/
 
 ### BLE Image Transfer
 
-**Connection**: Use BLE scanner or Python script to connect to `CyberGlass`
+**Connection**: Use BLE scanner or Python script to connect to `CyberGlass-XXXX` (where XXXX is the device's unique MAC suffix)
 
 **Image Request Flow**:
 1. Connect to BLE device
@@ -169,7 +169,7 @@ Edit [include/ble_image_transfer.h](include/ble_image_transfer.h):
 
 - **Can't find device**:
   - Check device is powered on
-  - Look for "CyberGlass" in BLE scanner
+  - Look for "CyberGlass-XXXX" in BLE scanner (XXXX = MAC suffix)
   - Ensure device is within ~10 meter range
   - Check serial monitor for "BLE advertising started"
 
