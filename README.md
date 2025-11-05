@@ -1,21 +1,20 @@
 # CyberGlass Camera System
 
-ESP32S3-based smart camera system with WiFi and serial connectivity for wireless video streaming and remote control.
+ESP32S3-based smart camera system with BLE (Bluetooth Low Energy) connectivity for wireless image transfer.
 
 ## Features
 
 ### Core Capabilities
-- **WiFi Access Point**: Creates standalone WiFi network (no router needed)
-- **Web Interface**: Browser-based control panel with live preview
-- **MJPEG Streaming**: Real-time video streaming over WiFi (~10 FPS)
-- **Serial Interface**: USB fallback for debugging and binary streaming (~30 FPS)
-- **Multi-Client**: Supports up to 4 simultaneous WiFi connections
+- **BLE Image Transfer**: Wireless image transfer via Bluetooth Low Energy
+- **8-Channel Parallel Transfer**: Fast BLE data transmission using 8 parallel channels
+- **No WiFi Required**: Pure BLE operation, no network infrastructure needed
+- **Mobile-First**: Optimized for mobile app integration
 
 ### Camera Control
 - **Multiple Resolutions**: QQVGA (160x120) to UXGA (1600x1200)
-- **Quality Control**: Adjustable JPEG compression (5-30)
+- **Quality Control**: Adjustable JPEG compression
 - **Dual Camera Support**: OV2640 (built-in) and OV5640 (external)
-- **Remote Configuration**: Change settings via web or serial
+- **Remote Configuration**: Change settings via BLE
 
 ## Hardware
 
@@ -23,7 +22,7 @@ ESP32S3-based smart camera system with WiFi and serial connectivity for wireless
 - **MCU**: ESP32-S3 (dual-core Xtensa, 240MHz)
 - **Camera**: OV2640 (built-in) or OV5640 (external)
 - **Memory**: 8MB PSRAM, 8MB Flash
-- **Connectivity**: WiFi 802.11 b/g/n, USB-C
+- **Connectivity**: BLE 5.0, USB-C
 
 ## Quick Start
 
@@ -40,44 +39,31 @@ pio run --target upload
 pio device monitor
 ```
 
-### 2. Connect to WiFi
+### 2. Connect via BLE
 
-The device creates its own WiFi network on first boot with unique credentials:
+The device automatically starts BLE service on boot:
 
-- **SSID**: `CyberGlass-XXXX` (where XXXX is device-specific MAC address)
-- **Password**: 12-character random password
-- **IP Address**: `192.168.4.1`
-
-**Important**: Check the serial monitor output to find your device's actual WiFi credentials. The SSID and password are randomly generated on first boot and saved permanently.
+- **Device Name**: `CyberGlass-XXXX`
+- **Range**: ~10 meters (typical BLE range)
+- **Services**: Image Control, Image Data (8 parallel channels)
 
 Connection steps:
 
-1. Check serial monitor for SSID and password
-2. Connect your phone/laptop to the `CyberGlass-XXXX` WiFi network
-3. Open browser to `http://192.168.4.1`
-4. Use web interface to control camera
+1. Power on the device
+2. Use BLE scanner app or Python script to find `CyberGlass-XXXX`
+3. Connect and start requesting images
 
-**Alternative**: Use the BLE provisioning feature to retrieve credentials wirelessly (see BLE section below)
+### 3. Use Python Tools
 
-### 3. Use Web Interface
-
-- Click **Capture Photo** to take a snapshot
-- Click **Start Stream** to begin live video
-- Click **Stop Stream** to end streaming
-- Adjust **Resolution** and **Quality** as needed
-
-### 4. Optional: Serial Tools (Advanced)
-
-For development and debugging, install Python tools:
+Install Python dependencies and use BLE tools:
 
 ```bash
 # Install Python dependencies
-pip install -r requirements.txt
+pip install -r tools/requirements.txt
 
-# Use serial streaming tools
-./fast_video_stream.sh   # Binary streaming (fastest)
-./video_stream.sh        # Alternative viewer
-./receive.sh             # Single photo capture
+# Connect and receive images via BLE
+cd tools
+python ble_receive_image.py
 ```
 
 ## Project Structure
@@ -85,99 +71,58 @@ pip install -r requirements.txt
 ```
 CyberGlass/
 ├── src/
-│   ├── main.cpp              # Main entry point
-│   ├── camera_module.cpp     # Camera control
-│   ├── wifi_provisioning.cpp # WiFi AP management
-│   ├── web_server.cpp        # HTTP server & routes
-│   └── base64_encoder.cpp    # Base64 encoding
+│   ├── main.cpp                  # Main entry point (BLE-only)
+│   ├── camera_module.cpp         # Camera control
+│   └── ble_image_transfer.cpp    # BLE image transfer service
 ├── include/
 │   ├── camera_module.h
-│   ├── wifi_provisioning.h
-│   ├── web_server.h
+│   ├── ble_image_transfer.h
 │   └── base64_encoder.h
 ├── tools/
-│   ├── receive_photo.py      # Serial photo receiver
-│   ├── video_stream.py       # Serial video viewer (Base64)
-│   └── fast_video_stream.py  # Serial video viewer (Binary)
-├── platformio.ini            # Build configuration
-├── requirements.txt          # Python dependencies
-├── README.md                 # This file
-└── WIFI_SETUP.md            # WiFi detailed guide
+│   ├── ble_receive_image.py      # BLE image receiver
+│   ├── ble_connect_and_open.py   # BLE connection utility
+│   ├── QUICKSTART.md             # Quick start guide
+│   └── README.md                 # Tools documentation
+├── platformio.ini                # Build configuration
+├── README.md                     # This file
+└── BLE_IMAGE_TRANSFER.md        # BLE protocol documentation
 ```
 
 ## Usage
 
-### Web Interface (Recommended)
+### BLE Image Transfer
 
-**Access**: Connect to `CyberGlass-AP` WiFi, then open `http://192.168.4.1`
+**Connection**: Use BLE scanner or Python script to connect to `CyberGlass`
 
-**Controls**:
-- **Capture Photo**: Take single snapshot (instant display)
-- **Start Stream**: Begin MJPEG video streaming
-- **Stop Stream**: End streaming and free resources
-- **Resolution**: Select from QQVGA to UXGA
-- **Quality**: Adjust JPEG compression (5-30)
+**Image Request Flow**:
+1. Connect to BLE device
+2. Write to Image Request characteristic with resolution and quality parameters
+3. Read Image Info characteristic to get image size and chunk count
+4. Subscribe to Image Data characteristics (8 parallel channels)
+5. Receive image data across multiple channels
+6. Reassemble image from chunks
 
-**Tips**:
-- Use VGA or lower for smooth streaming
-- Lower quality value = better image, larger file
-- Multiple browsers can view simultaneously (max 4)
-
-### Serial Interface (Development)
-
-Connect via USB and send commands:
-
-```
-Available commands:
-  capture/c    - Capture photo and show info
-  send/d       - Capture and send binary data
-  stream       - Start binary video stream (use with fast_video_stream.py)
-  stop         - Stop streaming
-  resolution/r - Change resolution
-  quality/q    - Set JPEG quality (0-63)
-  status/s     - Show camera and memory status
-  help/h       - Show help
-```
-
-**Note**: Serial uses binary protocol, WiFi uses MJPEG.
-
-## API Endpoints
-
-### HTTP (WiFi)
-
-- `GET /` - Web interface
-- `GET /capture` - Capture photo (JPEG)
-- `GET /stream` - MJPEG video stream
-- `GET /status` - System status (JSON)
-- `GET /resolution?value=VGA` - Change resolution
-- `GET /quality?value=10` - Change quality
-
-### Examples
-
+**Python Example**:
 ```bash
-# Capture photo
-curl http://192.168.4.1/capture > photo.jpg
-
-# Get status
-curl http://192.168.4.1/status
-
-# Stream with VLC
-vlc http://192.168.4.1/stream
+cd tools
+python ble_receive_image.py
 ```
+
+See [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md) for detailed protocol documentation.
+
+## BLE Services and Characteristics
+
+### Image Control Service
+- **Image Request** (Write): Request image with resolution/quality
+- **Image Info** (Read/Notify): Image metadata (size, chunks, status)
+- **Image Control** (Write): Control transfer (request chunk, cancel)
+
+### Image Data Services (8 Parallel Channels)
+- **Image Data 1-8** (Read/Notify): Image data chunks distributed across channels
+
+For complete protocol specification, see [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md).
 
 ## Configuration
-
-### WiFi Settings
-
-WiFi credentials are automatically generated on first boot and saved to device memory. To customize the WiFi configuration, edit [include/wifi_provisioning.h](include/wifi_provisioning.h):
-
-```cpp
-#define AP_SSID_PREFIX "CyberGlass-"   // SSID prefix (device MAC will be appended)
-#define AP_CHANNEL 1                   // WiFi channel (1-13)
-#define AP_MAX_CONNECTIONS 4           // Max simultaneous clients
-```
-
-**Note**: The password is randomly generated and cannot be changed without modifying the source code. To reset credentials, erase the device flash memory.
 
 ### Camera Settings
 
@@ -191,38 +136,52 @@ config.frame_size = FRAMESIZE_VGA;  // 640x480
 config.jpeg_quality = 10;  // 0-63 (lower = better quality)
 ```
 
+### BLE Settings
+
+Edit [include/ble_image_transfer.h](include/ble_image_transfer.h):
+
+```cpp
+#define BLE_DEVICE_NAME "CyberGlass"     // BLE device name
+#define BLE_IMAGE_CHUNK_SIZE 480         // Bytes per chunk
+#define BLE_IMAGE_DATA_CHANNELS 8        // Parallel channels
+```
+
 ## Performance
 
-| Connection | Frame Rate | Latency | Range | Best Use |
-|------------|------------|---------|-------|----------|
-| WiFi MJPEG | ~10 FPS | ~200ms | ~50m | General use, demos |
-| Serial Binary | ~30 FPS | ~50ms | Cable | Development, high FPS |
+| Feature | Specification |
+|---------|---------------|
+| Connection Type | BLE 5.0 |
+| Range | ~10 meters |
+| Data Channels | 8 parallel |
+| Chunk Size | 480 bytes |
+| Max Image Size | 64 KB |
+| Resolutions | QQVGA to UXGA |
 
 **Factors affecting performance**:
-- **Resolution**: Lower = faster (QVGA recommended for WiFi)
-- **Quality**: Higher value = smaller files = faster transfer
-- **WiFi distance**: Closer = better throughput
-- **Clients**: Each client reduces available bandwidth
+- **Resolution**: Lower = faster transfer
+- **Quality**: Higher value = smaller files
+- **BLE distance**: Closer = better throughput
+- **Parallel channels**: 8 channels for faster transfer
 
 ## Troubleshooting
 
-### WiFi Issues
+### BLE Issues
 
-- **Can't connect to AP**:
-  - Check serial monitor for the actual SSID (format: `CyberGlass-XXXX`)
-  - Copy the password exactly from serial output (12 random characters)
-  - Ensure device shows "WiFi AP started successfully" in serial monitor
+- **Can't find device**:
+  - Check device is powered on
+  - Look for "CyberGlass" in BLE scanner
+  - Ensure device is within ~10 meter range
+  - Check serial monitor for "BLE advertising started"
 
-- **Web page won't load**:
-  - Ensure connected to your device's WiFi network (check serial monitor for SSID)
-  - Navigate to exactly `http://192.168.4.1`
-  - Try different browser (Chrome/Firefox/Safari)
+- **Connection fails**:
+  - Restart device and try again
+  - Ensure no other device is connected
+  - Check BLE is enabled on client device
 
-- **Streaming shows black screen**:
-  - Test with "Capture Photo" first to verify camera works
-  - Check serial output for error messages
-  - Try lower resolution (QVGA or VGA)
-  - Refresh browser with Ctrl+F5
+- **Image transfer incomplete**:
+  - Move closer to device
+  - Check for BLE interference
+  - Verify image size is under 64KB
 
 ### Camera Issues
 
@@ -233,19 +192,13 @@ config.jpeg_quality = 10;  // 0-63 (lower = better quality)
 
 - **Corrupted images**:
   - Reduce resolution
-  - Move closer to device (WiFi interference)
-  - Disconnect other clients
-
-- **Low frame rate**:
-  - Use QVGA (320x240) for WiFi
-  - Increase quality value (20-30)
-  - Reduce number of connected clients
+  - Move closer to device
+  - Check chunk reassembly logic
 
 ### Build Issues
 
-- **AsyncTCP errors**: Libraries will auto-download from GitHub
 - **Upload fails**: Check USB connection and correct port selected
-- **Out of memory**: Normal with high resolutions - use QVGA/VGA
+- **Out of memory**: Use lower resolutions or reduce quality
 
 ## Development
 
@@ -253,14 +206,12 @@ config.jpeg_quality = 10;  // 0-63 (lower = better quality)
 
 **Firmware:**
 - ESP32 Arduino Framework
-- ESP Async WebServer
-- AsyncTCP
+- ESP32 BLE Library
 
 **Tools:**
 - Python 3.7+
-- pyserial
-- opencv-python
-- numpy
+- bleak (BLE library for Python)
+- Pillow (Image processing)
 
 ### Building from Source
 
@@ -301,7 +252,9 @@ Contributions are welcome! Please:
 
 ## Support
 
-For detailed WiFi setup, see [WIFI_SETUP.md](WIFI_SETUP.md)
+For detailed BLE protocol, see [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md)
+
+For migration notes, see [WIFI_HTTP_REMOVAL_SUMMARY.md](WIFI_HTTP_REMOVAL_SUMMARY.md)
 
 For issues:
 1. Check serial monitor for error messages

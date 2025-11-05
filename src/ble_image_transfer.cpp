@@ -2,6 +2,21 @@
 #include "camera_module.h"
 #include "esp_camera.h"
 
+// BLE Server Callbacks for handling connections/disconnections
+class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
+  void onConnect(BLEServer *pServer) override { 
+    Serial.println("BLE: Client connected"); 
+  }
+
+  void onDisconnect(BLEServer *pServer) override {
+    Serial.println("BLE: Client disconnected");
+    // Restart advertising so other devices can connect
+    delay(500); // Give some time for cleanup
+    BLEDevice::startAdvertising();
+    Serial.println("BLE: Advertising restarted");
+  }
+};
+
 // BLE Callback class for handling image transfer requests
 class ImageTransferCallbacks final : public BLECharacteristicCallbacks {
   BLEImageTransfer *transfer;
@@ -58,9 +73,10 @@ public:
 };
 
 BLEImageTransfer::BLEImageTransfer() :
-    pImageService(nullptr), pImageDataService1(nullptr), pImageDataService2(nullptr), pCharImageRequest(nullptr),
-    pCharImageInfo(nullptr), pCharImageControl(nullptr), pImageRequestCallbacks(nullptr),
-    pImageControlCallbacks(nullptr), imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
+    pServer(nullptr), pImageService(nullptr), pImageDataService1(nullptr), pImageDataService2(nullptr), 
+    pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageControl(nullptr), 
+    pServerCallbacks(nullptr), pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), 
+    imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
     imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0), pendingQuality(0),
     hasPendingChunkRequest(false), pendingChunkIndex(0) {
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
@@ -68,14 +84,20 @@ BLEImageTransfer::BLEImageTransfer() :
   }
 }
 
-bool BLEImageTransfer::initService(BLEServer *pServer) {
-  if (!pServer) {
-    Serial.println("BLE Image Transfer: Invalid server");
-    return false;
-  }
+bool BLEImageTransfer::initBLE() {
+  Serial.println("=== Initializing BLE Image Transfer ===");
 
-  Serial.println("=== Initializing BLE Image Transfer Services ===");
-  Serial.printf("Server pointer: %p\n", pServer);
+  // Initialize BLE
+  BLEDevice::init(BLE_DEVICE_NAME);
+  Serial.println("BLE device initialized: " + String(BLE_DEVICE_NAME));
+
+  // Create BLE Server
+  pServer = BLEDevice::createServer();
+  Serial.printf("BLE Server created: %p\n", pServer);
+
+  // Set server callbacks for connection/disconnection events
+  pServerCallbacks = new CyberGlassBLEServerCallbacks();
+  pServer->setCallbacks(pServerCallbacks);
 
   // Create Control Service for Image Transfer (Request, Info, Control)
   Serial.println("Creating Image Control Service...");
@@ -151,6 +173,15 @@ bool BLEImageTransfer::initService(BLEServer *pServer) {
   pImageDataService2->start();
   Serial.println("Image Data Service 2 started (4 parallel channels)!");
 
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(BLE_IMAGE_SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+
+  Serial.println("BLE advertising started");
   Serial.println("BLE Image Transfer: 3 services started (Control + Data1 + Data2 = 8 channels)!");
   Serial.println("======================================");
 
@@ -397,10 +428,12 @@ void BLEImageTransfer::cleanup() {
   cancelImageTransfer();
 
   // Clean up callback objects to prevent memory leak
+  delete pServerCallbacks;
   delete pImageRequestCallbacks;
   delete pImageControlCallbacks;
 
   // Reset pointers
+  pServerCallbacks = nullptr;
   pImageRequestCallbacks = nullptr;
   pImageControlCallbacks = nullptr;
   pCharImageRequest = nullptr;
@@ -409,6 +442,15 @@ void BLEImageTransfer::cleanup() {
     pCharImageData[i] = nullptr;
   }
   pCharImageControl = nullptr;
+
+  // Deinitialize BLE
+  if (pServer) {
+    BLEDevice::deinit(true);
+    pServer = nullptr;
+    pImageService = nullptr;
+    pImageDataService1 = nullptr;
+    pImageDataService2 = nullptr;
+  }
 
   Serial.println("BLE Image Transfer: Cleanup complete");
 }

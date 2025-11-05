@@ -7,7 +7,10 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 
-// BLE Services for Image Transfer (separate from WiFi provisioning service)
+// BLE Device Configuration
+#define BLE_DEVICE_NAME "CyberGlass"
+
+// BLE Services for Image Transfer
 #define BLE_IMAGE_SERVICE_UUID "c6116a0a-b7a0-11f0-880d-6baf85e562fd" // Control service (Request, Info, Control)
 #define BLE_IMAGE_DATA_SERVICE_1_UUID "d8227b1c-c1d5-11f0-9f3e-4c6a95f7e8d1" // Data service 1 (4 parallel channels)
 #define BLE_IMAGE_DATA_SERVICE_2_UUID "e9338c2d-d2e6-11f0-a04f-5d7b0618f9e2" // Data service 2 (4 parallel channels)
@@ -40,8 +43,8 @@ class BLEImageTransfer {
 public:
   BLEImageTransfer();
 
-  // Initialize BLE image transfer with its own service
-  bool initService(BLEServer *pServer);
+  // Initialize BLE device and services
+  bool initBLE();
 
   // Image Transfer Functions
   bool captureAndPrepareImage(uint8_t resolutionIndex, uint8_t quality);
@@ -56,7 +59,10 @@ public:
   void cleanup();
 
 private:
-  // BLE Image Transfer Services (separate from WiFi service)
+  // BLE Server
+  BLEServer *pServer;
+  
+  // BLE Image Transfer Services
   BLEService *pImageService; // Control service (Request, Info, Control)
   BLEService *pImageDataService1; // Data service 1 (channels 1-4)
   BLEService *pImageDataService2; // Data service 2 (channels 5-8)
@@ -68,6 +74,7 @@ private:
   BLECharacteristic *pCharImageControl;
 
   // BLE Callbacks (stored to prevent memory leak)
+  BLEServerCallbacks *pServerCallbacks;
   BLECharacteristicCallbacks *pImageRequestCallbacks;
   BLECharacteristicCallbacks *pImageControlCallbacks;
 
