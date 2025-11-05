@@ -342,7 +342,6 @@ bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, con
   Serial.println("Auto-sending all chunks...");
   for (uint16_t i = 0; i < totalChunks; i += BLE_IMAGE_DATA_CHANNELS) {
     sendImageChunk(i);
-    delay(30); // Delay to prevent BLE queue overflow (HD needs more time)
 
     // Print progress every few batches
     if (i % 16 == 0 || i + BLE_IMAGE_DATA_CHANNELS >= totalChunks) {
@@ -499,7 +498,6 @@ void BLEImageTransfer::processPendingRequests() {
       }
       
       Serial.printf("BLE: Retransmitted batch %u-%u/%u\n", i, i + batchSize - 1, totalToSend - 1);
-      delay(30);  // Delay to prevent BLE queue overflow (HD needs more time)
     }
     
     pendingChunkCount = 0;
