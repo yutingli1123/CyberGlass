@@ -7,7 +7,7 @@ BLEImageTransfer bleImageTransfer;
 
 void setup() {
   Serial.begin(115200); // Initialize serial communication
-  delay(1000);
+  // delay(1000);
 
   // Initialize system
   Serial.println("\n========================================");
