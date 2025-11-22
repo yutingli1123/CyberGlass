@@ -15,11 +15,9 @@
 #define BLE_IMAGE_DATA_SERVICE_1_UUID "55a9c06c-bce3-11f0-a025-7fecb01921e9" // Data service 1 (4 parallel channels)
 #define BLE_IMAGE_DATA_SERVICE_2_UUID "5a7c0b7c-bce3-11f0-b0e7-67cbb27841b4" // Data service 2 (4 parallel channels)
 
-// BLE Characteristics for Image Transfer
-#define BLE_CHAR_IMAGE_REQUEST_UUID                                                                                    \
-  "5e3a50ac-bce3-11f0-b255-ef540899ea64" // WRITE - Request image capture (params: resolution_index, quality)
+// BLE Characteristics for Video Stream
 #define BLE_CHAR_IMAGE_INFO_UUID                                                                                       \
-  "62fccb60-bce3-11f0-9a02-c38e72d2d0c8" // READ/NOTIFY - Image metadata (size, chunks, status)
+  "62fccb60-bce3-11f0-9a02-c38e72d2d0c8" // READ/NOTIFY - Video stream metadata (status, frame info)
 #define BLE_CHAR_IMAGE_DATA_1_UUID "66f0e594-bce3-11f0-ac75-8b26179f0c8c" // READ/NOTIFY - Image data chunks (channel 1)
 #define BLE_CHAR_IMAGE_DATA_2_UUID "6accca16-bce3-11f0-aa05-17a54e5b82d7" // READ/NOTIFY - Image data chunks (channel 2)
 #define BLE_CHAR_IMAGE_DATA_3_UUID "6e12bdca-bce3-11f0-a24e-17df33e71289" // READ/NOTIFY - Image data chunks (channel 3)
@@ -46,14 +44,6 @@ public:
   // Initialize BLE device and services
   bool initBLE();
 
-  // Image Transfer Functions
-  bool captureAndPrepareImage(uint8_t resolutionIndex, uint8_t quality);
-
-  bool sendImageChunk(uint16_t chunkIndex, int count = -1); // count=-1: send batch, count=1: send single
-  void cancelImageTransfer();
-
-  bool isImageTransferActive() const;
-
   // Video Stream Functions
   bool startVideoStream(uint8_t resolutionIndex, uint8_t quality, uint8_t targetFps, uint8_t chunkDelayMs = 50);
 
@@ -73,6 +63,11 @@ public:
   void cleanup();
 
 private:
+  // Internal helper functions (used by video streaming)
+  bool sendImageChunk(uint16_t chunkIndex, int count = -1); // count=-1: send batch, count=1: send single
+  void cancelImageTransfer();
+  bool isImageTransferActive() const;
+
   // BLE Server
   BLEServer *pServer;
 
@@ -81,30 +76,23 @@ private:
   BLEService *pImageDataService1; // Data service 1 (channels 1-4)
   BLEService *pImageDataService2; // Data service 2 (channels 5-8)
 
-  // BLE Image Transfer Characteristics
-  BLECharacteristic *pCharImageRequest;
+  // BLE Video Transfer Characteristics
   BLECharacteristic *pCharImageInfo;
   BLECharacteristic *pCharImageData[BLE_IMAGE_DATA_CHANNELS]; // Multiple data channels for parallel transfer
   BLECharacteristic *pCharImageControl;
 
   // BLE Callbacks (stored to prevent memory leak)
   BLEServerCallbacks *pServerCallbacks;
-  BLECharacteristicCallbacks *pImageRequestCallbacks;
   BLECharacteristicCallbacks *pImageControlCallbacks;
 
-  // Image Transfer State
+  // Video Frame Transfer State
   uint8_t *imageBuffer;
   size_t imageSize;
   uint16_t totalChunks;
   uint16_t currentChunk;
   bool imageTransferActive;
 
-  // Pending request
-  volatile bool hasPendingRequest;
-  uint8_t pendingResolutionIndex;
-  uint8_t pendingQuality;
-
-  // Pending chunk requests (batch retransmit support)
+  // Pending chunk requests (batch retransmit support for video frames)
   volatile bool hasPendingChunkRequests;
   uint16_t pendingChunkIndexes[256]; // Fixed size array (max 256 chunks to retransmit at once)
   volatile uint8_t pendingChunkCount;

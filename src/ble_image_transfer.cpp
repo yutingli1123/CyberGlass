@@ -30,27 +30,7 @@ public:
 
     Serial.printf("BLE: onWrite called - UUID: %s, Length: %d\n", uuid.c_str(), value.length());
 
-    if (uuid == BLE_CHAR_IMAGE_REQUEST_UUID) {
-      // Format: [resolution_index, quality]
-      if (value.length() >= 2) {
-        const uint8_t resolutionIndex = static_cast<uint8_t>(value[0]);
-        const uint8_t quality = static_cast<uint8_t>(value[1]);
-        Serial.printf("BLE: Image request queued - Resolution: %d, Quality: %d\n", resolutionIndex, quality);
-
-        // New request received - release previous image buffer if exists
-        if (transfer->imageBuffer) {
-          Serial.println("BLE: New request received, releasing previous image buffer");
-          free(transfer->imageBuffer);
-          transfer->imageBuffer = nullptr;
-          transfer->imageTransferActive = false;
-        }
-
-        // Queue the request instead of processing immediately
-        transfer->pendingResolutionIndex = resolutionIndex;
-        transfer->pendingQuality = quality;
-        transfer->hasPendingRequest = true;
-      }
-    } else if (uuid == BLE_CHAR_IMAGE_CONTROL_UUID) {
+    if (uuid == BLE_CHAR_IMAGE_CONTROL_UUID) {
       if (!value.empty()) {
         const uint8_t command = static_cast<uint8_t>(value[0]);
         if (command == 0) {
@@ -120,12 +100,10 @@ public:
 
 BLEImageTransfer::BLEImageTransfer() : pServer(nullptr), pImageService(nullptr), pImageDataService1(nullptr),
                                        pImageDataService2(nullptr),
-                                       pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageControl(nullptr),
-                                       pServerCallbacks(nullptr), pImageRequestCallbacks(nullptr),
-                                       pImageControlCallbacks(nullptr),
+                                       pCharImageInfo(nullptr), pCharImageControl(nullptr),
+                                       pServerCallbacks(nullptr), pImageControlCallbacks(nullptr),
                                        imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
-                                       imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0),
-                                       pendingQuality(0),
+                                       imageTransferActive(false),
                                        hasPendingChunkRequests(false), pendingChunkCount(0),
                                        videoStreamActive(false), videoResolutionIndex(2), videoQuality(50), videoTargetFps(5),
                                        frameCount(0), streamStartTime(0), frameInterval(200) {
@@ -154,27 +132,19 @@ bool BLEImageTransfer::initBLE() {
   pServerCallbacks = new CyberGlassBLEServerCallbacks();
   pServer->setCallbacks(pServerCallbacks);
 
-  // Create Control Service for Image Transfer (Request, Info, Control)
-  Serial.println("Creating Image Control Service...");
+  // Create Video Control Service (Info and Control characteristics)
+  Serial.println("Creating Video Control Service...");
   pImageService = pServer->createService(BLE_IMAGE_SERVICE_UUID);
-  Serial.printf("Image Control Service created: %p\n", pImageService);
+  Serial.printf("Video Control Service created: %p\n", pImageService);
 
-  // Create Image Request Characteristic (Write) - Request image capture
-  Serial.println("Creating Image Request characteristic...");
-  pCharImageRequest = pImageService->createCharacteristic(
-      BLE_CHAR_IMAGE_REQUEST_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-  Serial.printf("Image Request created: %p\n", pCharImageRequest);
-  pImageRequestCallbacks = new ImageTransferCallbacks(this);
-  pCharImageRequest->setCallbacks(pImageRequestCallbacks);
-
-  // Create Image Info Characteristic (Read/Notify) - Image metadata
+  // Create Image Info Characteristic (Read/Notify) - Video stream metadata
   Serial.println("Creating Image Info characteristic...");
   pCharImageInfo = pImageService->createCharacteristic(
       BLE_CHAR_IMAGE_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pCharImageInfo->addDescriptor(new BLE2902());
   Serial.printf("Image Info created: %p\n", pCharImageInfo);
 
-  // Create Image Control Characteristic (Write) - Control transfer
+  // Create Image Control Characteristic (Write) - Video stream control
   Serial.println("Creating Image Control characteristic...");
   pCharImageControl = pImageService->createCharacteristic(
       BLE_CHAR_IMAGE_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
@@ -184,7 +154,7 @@ bool BLEImageTransfer::initBLE() {
 
   // Start the control service
   pImageService->start();
-  Serial.println("Image Control Service started (3 characteristics)!");
+  Serial.println("Video Control Service started (2 characteristics)!");
 
   // Create Data Service 1 for parallel image transfer (channels 1-4)
   Serial.println("Creating Image Data Service 1...");
@@ -243,146 +213,7 @@ bool BLEImageTransfer::initBLE() {
   return true;
 }
 
-bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, const uint8_t quality) {
-  Serial.println("=== Capturing Image for BLE Transfer ===");
-
-  // Cancel any existing transfer
-  cancelImageTransfer();
-
-  // Map resolution index to framesize_t
-  const framesize_t resolutions[] = {FRAMESIZE_QQVGA, // 0: 160x120
-                                     FRAMESIZE_QVGA, // 1: 320x240
-                                     FRAMESIZE_VGA, // 2: 640x480
-                                     FRAMESIZE_SVGA, // 3: 800x600
-                                     FRAMESIZE_XGA, // 4: 1024x768
-                                     FRAMESIZE_HD, // 5: 1280x720
-                                     FRAMESIZE_SXGA, // 6: 1280x1024
-                                     FRAMESIZE_UXGA}; // 7: 1600x1200
-
-  framesize_t targetResolution = FRAMESIZE_QVGA; // Default
-  if (resolutionIndex < 8) {
-    targetResolution = resolutions[resolutionIndex];
-  }
-
-  // Change camera settings
-  if (!changeResolution(targetResolution)) {
-    Serial.println("Failed to change resolution");
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
-    return false;
-  }
-
-  if (!changeQuality(quality)) {
-    Serial.println("Failed to change quality");
-  }
-
-  // delay(100); // Allow camera to adjust
-
-  // Discard stale frame from buffer
-  camera_fb_t *discard = esp_camera_fb_get();
-  if (discard)
-    esp_camera_fb_return(discard);
-
-  // Capture image
-  camera_fb_t *fb = esp_camera_fb_get();
-  if (!fb) {
-    Serial.println("Camera capture failed");
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
-    return false;
-  }
-
-  Serial.printf("Image captured: %d bytes\n", fb->len);
-
-  // Check if image is too large
-  if (fb->len > BLE_IMAGE_MAX_SIZE) {
-    Serial.printf("Image too large: %d bytes (max: %d)\n", fb->len, BLE_IMAGE_MAX_SIZE);
-    esp_camera_fb_return(fb);
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {3, 0, 0, 0, 0, 0, 0}; // Status: 3 = too large
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
-    return false;
-  }
-
-  // Allocate buffer and copy image data
-  imageBuffer = static_cast<uint8_t *>(malloc(fb->len));
-  if (!imageBuffer) {
-    Serial.println("Failed to allocate image buffer");
-    esp_camera_fb_return(fb);
-    if (pCharImageInfo) {
-      uint8_t errorInfo[7] = {2, 0, 0, 0, 0, 0, 0}; // Status: 2 = error
-      pCharImageInfo->setValue(errorInfo, 7);
-      pCharImageInfo->notify();
-    }
-    return false;
-  }
-
-  memcpy(imageBuffer, fb->buf, fb->len);
-  imageSize = fb->len;
-  esp_camera_fb_return(fb);
-
-  // Calculate number of chunks
-  totalChunks = (imageSize + BLE_IMAGE_CHUNK_SIZE - 1) / BLE_IMAGE_CHUNK_SIZE;
-  currentChunk = 0;
-  imageTransferActive = true;
-
-  Serial.printf("Image prepared: %d bytes, %d chunks\n", imageSize, totalChunks);
-
-  // Update image info characteristic
-  // Format: [status, size_low, size_mid_low, size_mid_high, size_high, chunks_low, chunks_high]
-  if (pCharImageInfo) {
-    uint8_t imageInfo[7];
-    imageInfo[0] = 1; // Status: 1 = ready
-    imageInfo[1] = imageSize & 0xFF;
-    imageInfo[2] = (imageSize >> 8) & 0xFF;
-    imageInfo[3] = (imageSize >> 16) & 0xFF;
-    imageInfo[4] = (imageSize >> 24) & 0xFF;
-    imageInfo[5] = totalChunks & 0xFF;
-    imageInfo[6] = (totalChunks >> 8) & 0xFF;
-    pCharImageInfo->setValue(imageInfo, 7);
-    pCharImageInfo->notify();
-    Serial.println("Image info sent via BLE");
-  }
-
-  // Automatically send all chunks in batches
-  Serial.println("Auto-sending all chunks...");
-  for (uint16_t i = 0; i < totalChunks; i += BLE_IMAGE_DATA_CHANNELS) {
-    sendImageChunk(i);
-
-    // Print progress every few batches
-    if (i % 16 == 0 || i + BLE_IMAGE_DATA_CHANNELS >= totalChunks) {
-      uint16_t sent = (i + BLE_IMAGE_DATA_CHANNELS > totalChunks) ? totalChunks : i + BLE_IMAGE_DATA_CHANNELS;
-      Serial.printf("Progress: sent up to chunk %d/%d\n", sent, totalChunks);
-    }
-  }
-
-  // Send transfer complete notification
-  if (pCharImageInfo) {
-    uint8_t completeInfo[7];
-    completeInfo[0] = 4; // Status: 4 = complete
-    completeInfo[1] = imageSize & 0xFF;
-    completeInfo[2] = (imageSize >> 8) & 0xFF;
-    completeInfo[3] = (imageSize >> 16) & 0xFF;
-    completeInfo[4] = (imageSize >> 24) & 0xFF;
-    completeInfo[5] = totalChunks & 0xFF;
-    completeInfo[6] = (totalChunks >> 8) & 0xFF;
-    pCharImageInfo->setValue(completeInfo, 7);
-    pCharImageInfo->notify();
-    Serial.println("BLE: Sent status 4 (initial transfer complete)");
-  }
-
-  Serial.println("All chunks sent, awaiting client confirmation...");
-  Serial.println("======================================");
-  return true;
-}
+// Image capture function removed - only video streaming is supported
 
 bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex, const int count) {
   // Allow sending if buffer exists (supports both auto-send and retransmit)
@@ -549,12 +380,7 @@ void BLEImageTransfer::processPendingRequests() {
     }
   }
 
-  // Process image capture requests (after retransmit is done)
-  if (hasPendingRequest && !imageTransferActive) {
-    hasPendingRequest = false;
-    Serial.println("BLE: Processing pending image request");
-    captureAndPrepareImage(pendingResolutionIndex, pendingQuality);
-  }
+  // Note: Image capture feature removed - only video streaming is supported
 }
 
 void BLEImageTransfer::cleanup() {
@@ -566,14 +392,11 @@ void BLEImageTransfer::cleanup() {
 
   // Clean up callback objects to prevent memory leak
   delete pServerCallbacks;
-  delete pImageRequestCallbacks;
   delete pImageControlCallbacks;
 
   // Reset pointers
   pServerCallbacks = nullptr;
-  pImageRequestCallbacks = nullptr;
   pImageControlCallbacks = nullptr;
-  pCharImageRequest = nullptr;
   pCharImageInfo = nullptr;
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = nullptr;
