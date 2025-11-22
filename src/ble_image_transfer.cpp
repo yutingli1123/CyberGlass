@@ -60,43 +60,56 @@ public:
         } else if (command == 1 && value.length() >= 5) {  // Minimum: [cmd, count_low, count_high, chunk1_low, chunk1_high]
           // Batch retransmit: [1, count_low, count_high, chunk1_low, chunk1_high, chunk2_low, chunk2_high, ...]
           const uint16_t count = static_cast<uint8_t>(value[1]) | (static_cast<uint8_t>(value[2]) << 8);
-          
+
           Serial.printf("BLE: Retransmit request - %d chunks (data length: %d bytes)\n", count, value.length());
-          
+
           // Debug: print raw bytes
           Serial.print("BLE: Raw data: ");
           for (int i = 0; i < value.length(); i++) {
             Serial.printf("0x%02X ", static_cast<uint8_t>(value[i]));
           }
           Serial.println();
-          
+
           // Calculate how many chunk indexes we can parse from received data
           const int maxChunksFromData = (value.length() - 3) / 2;  // Skip [cmd, count_low, count_high]
           const int chunksToProcess = min((int)count, min(maxChunksFromData, 8));
-          
-          Serial.printf("BLE: Can parse %d chunks from %d bytes, will process %d\n", 
-                       maxChunksFromData, value.length(), chunksToProcess);
-          
+
+          Serial.printf("BLE: Can parse %d chunks from %d bytes, will process %d\n",
+                        maxChunksFromData, value.length(), chunksToProcess);
+
           // Parse chunk indexes and store for later processing
           transfer->pendingChunkCount = 0;
           for (int i = 0; i < chunksToProcess; i++) {
             const int dataIndex = 3 + i*2;  // Start from bytes[3], not bytes[2]
             if (dataIndex + 1 < value.length()) {
-              const uint16_t chunkIndex = static_cast<uint8_t>(value[dataIndex]) | 
-                                         (static_cast<uint8_t>(value[dataIndex + 1]) << 8);
+              const uint16_t chunkIndex = static_cast<uint8_t>(value[dataIndex]) |
+                                          (static_cast<uint8_t>(value[dataIndex + 1]) << 8);
               transfer->pendingChunkIndexes[transfer->pendingChunkCount++] = chunkIndex;
-              Serial.printf("  - Chunk %d (bytes[%d,%d] = 0x%02X,0x%02X)\n", 
-                           chunkIndex, dataIndex, dataIndex+1, 
-                           static_cast<uint8_t>(value[dataIndex]), static_cast<uint8_t>(value[dataIndex+1]));
+              Serial.printf("  - Chunk %d (bytes[%d,%d] = 0x%02X,0x%02X)\n",
+                            chunkIndex, dataIndex, dataIndex + 1,
+                            static_cast<uint8_t>(value[dataIndex]), static_cast<uint8_t>(value[dataIndex+1]));
             }
           }
-          
+
           if (transfer->pendingChunkCount > 0) {
             transfer->hasPendingChunkRequests = true;
             Serial.printf("BLE: Queued %d chunks for retransmit\n", transfer->pendingChunkCount);
           } else {
             Serial.println("BLE: WARNING - No chunks parsed from retransmit request!");
           }
+        } else if (command == 3 && value.length() >= 4) {
+          // Start video stream: [3, resolution_index, quality, fps, chunk_delay_ms (optional)]
+          const uint8_t resolutionIndex = static_cast<uint8_t>(value[1]);
+          const uint8_t quality = static_cast<uint8_t>(value[2]);
+          const uint8_t fps = static_cast<uint8_t>(value[3]);
+          const uint8_t chunkDelayMs = (value.length() >= 5) ? static_cast<uint8_t>(value[4]) : 50; // Default 50ms
+          Serial.printf("BLE: Start video stream - Resolution: %d, Quality: %d, FPS: %d, ChunkDelay: %dms\n",
+                        resolutionIndex, quality, fps, chunkDelayMs);
+          transfer->startVideoStream(resolutionIndex, quality, fps, chunkDelayMs);
+        } else if (command == 4) {
+          // Stop video stream: [4]
+          Serial.println("BLE: Stop video stream");
+          transfer->stopVideoStream();
         }
         // Removed command == 2 confirmation mechanism
         // Image buffer is now released when new request arrives
@@ -105,13 +118,17 @@ public:
   }
 };
 
-BLEImageTransfer::BLEImageTransfer() :
-    pServer(nullptr), pImageService(nullptr), pImageDataService1(nullptr), pImageDataService2(nullptr), 
-    pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageControl(nullptr), 
-    pServerCallbacks(nullptr), pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), 
-    imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
-    imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0), pendingQuality(0),
-    hasPendingChunkRequests(false), pendingChunkCount(0) {
+BLEImageTransfer::BLEImageTransfer() : pServer(nullptr), pImageService(nullptr), pImageDataService1(nullptr),
+                                       pImageDataService2(nullptr),
+                                       pCharImageRequest(nullptr), pCharImageInfo(nullptr), pCharImageControl(nullptr),
+                                       pServerCallbacks(nullptr), pImageRequestCallbacks(nullptr),
+                                       pImageControlCallbacks(nullptr),
+                                       imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
+                                       imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0),
+                                       pendingQuality(0),
+                                       hasPendingChunkRequests(false), pendingChunkCount(0),
+                                       videoStreamActive(false), videoResolutionIndex(2), videoQuality(50), videoTargetFps(5),
+                                       frameCount(0), streamStartTime(0), frameInterval(200) {
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = nullptr;
   }
@@ -412,27 +429,12 @@ bool BLEImageTransfer::sendImageChunk(const uint16_t chunkIndex, const int count
     currentChunk = currentChunkIndex;
   }
 
-  
-  // Smart delay based on total image size
-  // Larger images (more total chunks) need more aggressive throttling
-  int delayMs = 0;
-  
-  if (totalChunks > 100) {
-    // Large image: delay 30 ms
-    delayMs = 20;
-  } else if (totalChunks > 50) {
-    // Medium image: delay 20 ms
-    delayMs = 20;
-  } else if (totalChunks > 40) {
-    delayMs = 0;
-  } else {
-    // Small image: delay 0 ms
-    delayMs = 0;
-  }
-  
-  
-  Serial.printf("  [Delay: %dms, total chunks: %d]\n", 
-                delayMs, totalChunks);
+
+  // Add delay between chunk batches to prevent BLE buffer overflow
+  // Video streaming needs conservative delays to ensure reliability
+  // Use video stream chunk delay if active, otherwise default to 50ms
+  int delayMs = videoStreamActive ? videoChunkDelayMs : 50;
+
   delay(delayMs);
 
   Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks,
@@ -546,7 +548,7 @@ void BLEImageTransfer::processPendingRequests() {
       Serial.println("BLE: Sent status 4 (transfer complete) after retransmit");
     }
   }
-  
+
   // Process image capture requests (after retransmit is done)
   if (hasPendingRequest && !imageTransferActive) {
     hasPendingRequest = false;
@@ -556,6 +558,9 @@ void BLEImageTransfer::processPendingRequests() {
 }
 
 void BLEImageTransfer::cleanup() {
+  // Stop video stream if active
+  stopVideoStream();
+
   // Clean up image buffer if exists
   cancelImageTransfer();
 
@@ -585,4 +590,199 @@ void BLEImageTransfer::cleanup() {
   }
 
   Serial.println("BLE Image Transfer: Cleanup complete");
+}
+
+// ========== Video Stream Functions ==========
+
+bool BLEImageTransfer::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
+                                        const uint8_t chunkDelayMs) {
+  Serial.println("=== Starting Video Stream ===");
+
+  // Stop any existing transfer or stream
+  cancelImageTransfer();
+  stopVideoStream();
+
+  // Validate FPS
+  if (targetFps == 0 || targetFps > 10) {
+    Serial.printf("Invalid FPS: %d (valid range: 1-10)\n", targetFps);
+    return false;
+  }
+
+  // Store video stream parameters
+  videoResolutionIndex = resolutionIndex;
+  videoQuality = quality;
+  videoTargetFps = targetFps;
+  videoChunkDelayMs = chunkDelayMs;
+  frameInterval = 1000 / targetFps; // Convert FPS to milliseconds
+  frameCount = 0;
+  streamStartTime = millis();
+
+  // Map resolution index to framesize_t
+  const framesize_t resolutions[] = {
+    FRAMESIZE_QQVGA, // 0: 160x120
+    FRAMESIZE_QVGA, // 1: 320x240
+    FRAMESIZE_VGA, // 2: 640x480
+    FRAMESIZE_SVGA, // 3: 800x600
+    FRAMESIZE_XGA, // 4: 1024x768
+    FRAMESIZE_HD, // 5: 1280x720
+    FRAMESIZE_SXGA, // 6: 1280x1024
+    FRAMESIZE_UXGA
+  }; // 7: 1600x1200
+
+  framesize_t targetResolution = FRAMESIZE_VGA; // Default
+  if (resolutionIndex < 8) {
+    targetResolution = resolutions[resolutionIndex];
+  }
+
+  // Configure camera
+  if (!changeResolution(targetResolution)) {
+    Serial.println("Failed to change resolution");
+    return false;
+  }
+
+  if (!changeQuality(quality)) {
+    Serial.println("Failed to change quality");
+  }
+
+  // Activate video stream
+  videoStreamActive = true;
+
+  Serial.printf("Video stream started: Resolution=%d, Quality=%d, Target FPS=%d (interval=%lu ms), ChunkDelay=%d ms\n",
+                resolutionIndex, quality, targetFps, frameInterval, chunkDelayMs);
+
+  // Send status notification
+  if (pCharImageInfo) {
+    uint8_t streamInfo[7];
+    streamInfo[0] = 5; // Status: 5 = video stream active
+    streamInfo[1] = resolutionIndex;
+    streamInfo[2] = quality;
+    streamInfo[3] = targetFps;
+    streamInfo[4] = 0;
+    streamInfo[5] = 0;
+    streamInfo[6] = 0;
+    pCharImageInfo->setValue(streamInfo, 7);
+    pCharImageInfo->notify();
+    Serial.println("Video stream status sent");
+  }
+
+  Serial.println("======================================");
+  return true;
+}
+
+void BLEImageTransfer::stopVideoStream() {
+  if (!videoStreamActive) {
+    return;
+  }
+
+  Serial.println("=== Stopping Video Stream ===");
+  videoStreamActive = false;
+
+  // Release any buffered frame
+  if (imageBuffer) {
+    free(imageBuffer);
+    imageBuffer = nullptr;
+  }
+  imageSize = 0;
+  totalChunks = 0;
+  currentChunk = 0;
+
+  // Send status notification
+  if (pCharImageInfo) {
+    uint8_t streamInfo[7] = {0}; // Status: 0 = idle
+    pCharImageInfo->setValue(streamInfo, 7);
+    pCharImageInfo->notify();
+    Serial.println("Video stream stopped notification sent");
+  }
+
+  Serial.printf("Video stream stopped after %lu frames\n", frameCount);
+  Serial.println("======================================");
+}
+
+bool BLEImageTransfer::isVideoStreamActive() const {
+  return videoStreamActive;
+}
+
+void BLEImageTransfer::processVideoStream() {
+  if (!videoStreamActive) {
+    return;
+  }
+
+  // Don't capture new frame if still processing previous one
+  if (imageTransferActive) {
+    return;
+  }
+
+  // Check if it's time for next frame based on target FPS
+  static unsigned long lastFrameTime = 0;
+  unsigned long currentTime = millis();
+  if (currentTime - lastFrameTime < frameInterval) {
+    return; // Not time yet
+  }
+  lastFrameTime = currentTime;
+
+  // Release previous frame buffer
+  if (imageBuffer) {
+    free(imageBuffer);
+    imageBuffer = nullptr;
+  }
+
+  // Capture new frame
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Video frame capture failed");
+    return;
+  }
+
+  // Check frame size
+  if (fb->len > BLE_IMAGE_MAX_SIZE) {
+    Serial.printf("Video frame too large: %d bytes (max: %d)\n", fb->len, BLE_IMAGE_MAX_SIZE);
+    esp_camera_fb_return(fb);
+    return;
+  }
+
+  // Allocate buffer and copy frame
+  imageBuffer = static_cast<uint8_t *>(malloc(fb->len));
+  if (!imageBuffer) {
+    Serial.println("Failed to allocate frame buffer");
+    esp_camera_fb_return(fb);
+    return;
+  }
+
+  memcpy(imageBuffer, fb->buf, fb->len);
+  imageSize = fb->len;
+  esp_camera_fb_return(fb);
+
+  // Calculate chunks
+  totalChunks = (imageSize + BLE_IMAGE_CHUNK_SIZE - 1) / BLE_IMAGE_CHUNK_SIZE;
+  currentChunk = 0;
+  frameCount++;
+  imageTransferActive = true;
+
+  // Send frame info with frame number
+  if (pCharImageInfo) {
+    uint8_t frameInfo[7];
+    frameInfo[0] = 6; // Status: 6 = video frame ready
+    frameInfo[1] = (frameCount & 0xFF); // Frame count low
+    frameInfo[2] = ((frameCount >> 8) & 0xFF); // Frame count mid-low
+    frameInfo[3] = ((frameCount >> 16) & 0xFF); // Frame count mid-high
+    frameInfo[4] = ((frameCount >> 24) & 0xFF); // Frame count high
+    frameInfo[5] = totalChunks & 0xFF;
+    frameInfo[6] = (totalChunks >> 8) & 0xFF;
+    pCharImageInfo->setValue(frameInfo, 7);
+    pCharImageInfo->notify();
+  }
+
+  // Send all chunks immediately
+  for (uint16_t i = 0; i < totalChunks; i += BLE_IMAGE_DATA_CHANNELS) {
+    sendImageChunk(i);
+  }
+
+  imageTransferActive = false;
+
+  // Log every 10 frames with FPS
+  if (frameCount % 10 == 0) {
+    unsigned long elapsed = millis() - streamStartTime;
+    float fps = (frameCount * 1000.0) / elapsed;
+    Serial.printf("Video: Frame %lu sent (%u bytes) - Avg FPS: %.2f\n", frameCount, imageSize, fps);
+  }
 }

@@ -30,6 +30,7 @@
 #define BLE_CHAR_IMAGE_DATA_8_UUID "7ee172c2-bce3-11f0-8828-574c4e3b235d" // READ/NOTIFY - Image data chunks (channel 8)
 #define BLE_CHAR_IMAGE_CONTROL_UUID "82832b8c-bce3-11f0-bb48-cf7a2d9f36a2" // WRITE - Control transfer (request chunk, cancel)
 
+
 // Number of parallel data channels
 #define BLE_IMAGE_DATA_CHANNELS 8
 
@@ -47,9 +48,20 @@ public:
 
   // Image Transfer Functions
   bool captureAndPrepareImage(uint8_t resolutionIndex, uint8_t quality);
+
   bool sendImageChunk(uint16_t chunkIndex, int count = -1); // count=-1: send batch, count=1: send single
   void cancelImageTransfer();
+
   bool isImageTransferActive() const;
+
+  // Video Stream Functions
+  bool startVideoStream(uint8_t resolutionIndex, uint8_t quality, uint8_t targetFps, uint8_t chunkDelayMs = 50);
+
+  void stopVideoStream();
+
+  bool isVideoStreamActive() const;
+
+  void processVideoStream(); // Call from main loop
 
   // Get device name
   String getDeviceName() const;
@@ -63,7 +75,7 @@ public:
 private:
   // BLE Server
   BLEServer *pServer;
-  
+
   // BLE Image Transfer Services
   BLEService *pImageService; // Control service (Request, Info, Control)
   BLEService *pImageDataService1; // Data service 1 (channels 1-4)
@@ -94,8 +106,18 @@ private:
 
   // Pending chunk requests (batch retransmit support)
   volatile bool hasPendingChunkRequests;
-  uint16_t pendingChunkIndexes[256];  // Fixed size array (max 256 chunks to retransmit at once)
+  uint16_t pendingChunkIndexes[256]; // Fixed size array (max 256 chunks to retransmit at once)
   volatile uint8_t pendingChunkCount;
+
+  // Video Stream State
+  bool videoStreamActive;
+  uint8_t videoResolutionIndex;
+  uint8_t videoQuality;
+  uint8_t videoTargetFps;
+  uint8_t videoChunkDelayMs; // Delay between chunk batches (ms)
+  uint32_t frameCount;
+  unsigned long streamStartTime;
+  unsigned long frameInterval; // milliseconds between frames (1000/fps)
 
   // Device name storage
   char deviceName[32];

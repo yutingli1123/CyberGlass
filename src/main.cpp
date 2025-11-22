@@ -12,7 +12,6 @@ void setup() {
   // Initialize system
   Serial.println("\n========================================");
   Serial.println("  XIAO ESP32S3 - CyberGlass System");
-  Serial.println("  BLE-Only Mode");
   Serial.println("========================================");
 
   // Initialize camera module
@@ -41,6 +40,9 @@ void setup() {
 void loop() {
   // Process pending BLE image requests
   bleImageTransfer.processPendingRequests();
+
+  // Process video stream (if active)
+  bleImageTransfer.processVideoStream();
 
   // Yield to system tasks
   yield();
