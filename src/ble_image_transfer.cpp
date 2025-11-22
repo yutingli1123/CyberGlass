@@ -111,7 +111,7 @@ BLEImageTransfer::BLEImageTransfer() :
     pServerCallbacks(nullptr), pImageRequestCallbacks(nullptr), pImageControlCallbacks(nullptr), 
     imageBuffer(nullptr), imageSize(0), totalChunks(0), currentChunk(0),
     imageTransferActive(false), hasPendingRequest(false), pendingResolutionIndex(0), pendingQuality(0),
-    hasPendingChunkRequests(false), pendingChunkCount(0), queuedNotifyCount(0) {
+    hasPendingChunkRequests(false), pendingChunkCount(0) {
   for (int i = 0; i < BLE_IMAGE_DATA_CHANNELS; i++) {
     pCharImageData[i] = nullptr;
   }
@@ -316,7 +316,6 @@ bool BLEImageTransfer::captureAndPrepareImage(const uint8_t resolutionIndex, con
   totalChunks = (imageSize + BLE_IMAGE_CHUNK_SIZE - 1) / BLE_IMAGE_CHUNK_SIZE;
   currentChunk = 0;
   imageTransferActive = true;
-  queuedNotifyCount = 0;  // Reset queue counter for new transfer
 
   Serial.printf("Image prepared: %d bytes, %d chunks\n", imageSize, totalChunks);
 
