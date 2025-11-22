@@ -84,8 +84,7 @@ CyberGlass/
 │   ├── QUICKSTART.md             # Quick start guide
 │   └── README.md                 # Tools documentation
 ├── platformio.ini                # Build configuration
-├── README.md                     # This file
-└── BLE_IMAGE_TRANSFER.md        # BLE protocol documentation
+└── README.md                     # This file
 ```
 
 ## Usage
@@ -108,8 +107,6 @@ cd tools
 python ble_receive_image.py
 ```
 
-See [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md) for detailed protocol documentation.
-
 ## BLE Services and Characteristics
 
 ### Image Control Service
@@ -119,8 +116,6 @@ See [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md) for detailed protocol documen
 
 ### Image Data Services (8 Parallel Channels)
 - **Image Data 1-8** (Read/Notify): Image data chunks distributed across channels
-
-For complete protocol specification, see [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md).
 
 ## Configuration
 
@@ -251,8 +246,6 @@ Contributions are welcome! Please:
 - **Camera Drivers**: Espressif ESP-IDF
 
 ## Support
-
-For detailed BLE protocol, see [BLE_IMAGE_TRANSFER.md](BLE_IMAGE_TRANSFER.md)
 
 For migration notes, see [WIFI_HTTP_REMOVAL_SUMMARY.md](WIFI_HTTP_REMOVAL_SUMMARY.md)
 
