@@ -133,7 +133,7 @@ config.jpeg_quality = 10;  // 0-63 (lower = better quality)
 
 ### BLE Settings
 
-Edit [include/ble_image_transfer.h](include/ble_image_transfer.h):
+Edit [include/ble_image_transfer.h](include/ble_video_stream.h):
 
 ```cpp
 #define BLE_DEVICE_NAME "CyberGlass"     // BLE device name
