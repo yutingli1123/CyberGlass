@@ -5,8 +5,8 @@
 
 // BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) override { 
-    Serial.println("BLE: Client connected"); 
+  void onConnect(BLEServer *pServer) override {
+    Serial.println("BLE: Client connected");
   }
 
   void onDisconnect(BLEServer *pServer) override {
@@ -22,7 +22,8 @@ class VideoStreamCallbacks final : public BLECharacteristicCallbacks {
   BLEVideoStream *stream;
 
 public:
-  explicit VideoStreamCallbacks(BLEVideoStream *st) : stream(st) {}
+  explicit VideoStreamCallbacks(BLEVideoStream *st) : stream(st) {
+  }
 
   void onWrite(BLECharacteristic *pCharacteristic) override {
     const std::string uuid = pCharacteristic->getUUID().toString();
@@ -37,7 +38,8 @@ public:
           // Cancel transfer
           Serial.println("BLE: Video transfer cancelled");
           stream->cancelVideoTransfer();
-        } else if (command == 1 && value.length() >= 5) {  // Minimum: [cmd, count_low, count_high, chunk1_low, chunk1_high]
+        } else if (command == 1 && value.length() >= 5) {
+          // Minimum: [cmd, count_low, count_high, chunk1_low, chunk1_high]
           // Batch retransmit: [1, count_low, count_high, chunk1_low, chunk1_high, chunk2_low, chunk2_high, ...]
           const uint16_t count = static_cast<uint8_t>(value[1]) | (static_cast<uint8_t>(value[2]) << 8);
 
@@ -51,8 +53,8 @@ public:
           Serial.println();
 
           // Calculate how many chunk indexes we can parse from received data
-          const int maxChunksFromData = (value.length() - 3) / 2;  // Skip [cmd, count_low, count_high]
-          const int chunksToProcess = min((int)count, min(maxChunksFromData, 8));
+          const int maxChunksFromData = (value.length() - 3) / 2; // Skip [cmd, count_low, count_high]
+          const int chunksToProcess = min((int) count, min(maxChunksFromData, 8));
 
           Serial.printf("BLE: Can parse %d chunks from %d bytes, will process %d\n",
                         maxChunksFromData, value.length(), chunksToProcess);
@@ -60,14 +62,14 @@ public:
           // Parse chunk indexes and store for later processing
           stream->pendingChunkCount = 0;
           for (int i = 0; i < chunksToProcess; i++) {
-            const int dataIndex = 3 + i*2;  // Start from bytes[3], not bytes[2]
+            const int dataIndex = 3 + i * 2; // Start from bytes[3], not bytes[2]
             if (dataIndex + 1 < value.length()) {
               const uint16_t chunkIndex = static_cast<uint8_t>(value[dataIndex]) |
                                           (static_cast<uint8_t>(value[dataIndex + 1]) << 8);
               stream->pendingChunkIndexes[stream->pendingChunkCount++] = chunkIndex;
               Serial.printf("  - Chunk %d (bytes[%d,%d] = 0x%02X,0x%02X)\n",
                             chunkIndex, dataIndex, dataIndex + 1,
-                            static_cast<uint8_t>(value[dataIndex]), static_cast<uint8_t>(value[dataIndex+1]));
+                            static_cast<uint8_t>(value[dataIndex]), static_cast<uint8_t>(value[dataIndex + 1]));
             }
           }
 
@@ -97,14 +99,15 @@ public:
 };
 
 BLEVideoStream::BLEVideoStream() : pServer(nullptr), pVideoService(nullptr), pVideoDataService1(nullptr),
-                                       pVideoDataService2(nullptr),
-                                       pCharVideoInfo(nullptr), pCharVideoControl(nullptr),
-                                       pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
-                                       videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0),
-                                       videoTransferActive(false),
-                                       hasPendingChunkRequests(false), pendingChunkCount(0),
-                                       videoStreamActive(false), videoResolutionIndex(2), videoQuality(50), videoTargetFps(5),
-                                       frameCount(0), streamStartTime(0), frameInterval(200) {
+                                   pVideoDataService2(nullptr),
+                                   pCharVideoInfo(nullptr), pCharVideoControl(nullptr),
+                                   pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
+                                   videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0),
+                                   videoTransferActive(false),
+                                   hasPendingChunkRequests(false), pendingChunkCount(0),
+                                   videoStreamActive(false), videoResolutionIndex(2), videoQuality(50),
+                                   videoTargetFps(5),
+                                   frameCount(0), streamStartTime(0), frameInterval(200) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -117,7 +120,7 @@ bool BLEVideoStream::initBLE() {
   uint8_t mac[6];
   esp_read_mac(mac, ESP_MAC_BT);
   snprintf(deviceName, sizeof(deviceName), "%s-%02X%02X", BLE_DEVICE_NAME, mac[4], mac[5]);
-  
+
   // Initialize BLE
   BLEDevice::init(deviceName);
   Serial.println("BLE device initialized: " + String(deviceName));
@@ -138,14 +141,14 @@ bool BLEVideoStream::initBLE() {
   // Create Video Info Characteristic (Read/Notify) - Video stream metadata
   Serial.println("Creating Video Info characteristic...");
   pCharVideoInfo = pVideoService->createCharacteristic(
-      BLE_CHAR_VIDEO_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+    BLE_CHAR_VIDEO_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pCharVideoInfo->addDescriptor(new BLE2902());
   Serial.printf("Video Info created: %p\n", pCharVideoInfo);
 
   // Create Video Control Characteristic (Write) - Video stream control
   Serial.println("Creating Video Control characteristic...");
   pCharVideoControl = pVideoService->createCharacteristic(
-      BLE_CHAR_VIDEO_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+    BLE_CHAR_VIDEO_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   pVideoControlCallbacks = new VideoStreamCallbacks(this);
   pCharVideoControl->setCallbacks(pVideoControlCallbacks);
   Serial.printf("Video Control created: %p\n", pCharVideoControl);
@@ -160,13 +163,15 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("Video Data Service 1 created: %p\n", pVideoDataService1);
 
   // Create Video Data Characteristics for Service 1 (channels 1-4)
-  const char *dataUUIDs1[4] = {BLE_CHAR_VIDEO_DATA_1_UUID, BLE_CHAR_VIDEO_DATA_2_UUID, BLE_CHAR_VIDEO_DATA_3_UUID,
-                               BLE_CHAR_VIDEO_DATA_4_UUID};
+  const char *dataUUIDs1[4] = {
+    BLE_CHAR_VIDEO_DATA_1_UUID, BLE_CHAR_VIDEO_DATA_2_UUID, BLE_CHAR_VIDEO_DATA_3_UUID,
+    BLE_CHAR_VIDEO_DATA_4_UUID
+  };
 
   Serial.println("Creating Video Data characteristics 1-4...");
   for (int i = 0; i < 4; i++) {
     pCharVideoData[i] = pVideoDataService1->createCharacteristic(dataUUIDs1[i], BLECharacteristic::PROPERTY_READ |
-                                                                                    BLECharacteristic::PROPERTY_NOTIFY);
+                                                                   BLECharacteristic::PROPERTY_NOTIFY);
     pCharVideoData[i]->addDescriptor(new BLE2902());
     Serial.printf("Video Data channel %d created: %p\n", i + 1, pCharVideoData[i]);
   }
@@ -181,13 +186,15 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("Video Data Service 2 created: %p\n", pVideoDataService2);
 
   // Create Video Data Characteristics for Service 2 (channels 5-8)
-  const char *dataUUIDs2[4] = {BLE_CHAR_VIDEO_DATA_5_UUID, BLE_CHAR_VIDEO_DATA_6_UUID, BLE_CHAR_VIDEO_DATA_7_UUID,
-                               BLE_CHAR_VIDEO_DATA_8_UUID};
+  const char *dataUUIDs2[4] = {
+    BLE_CHAR_VIDEO_DATA_5_UUID, BLE_CHAR_VIDEO_DATA_6_UUID, BLE_CHAR_VIDEO_DATA_7_UUID,
+    BLE_CHAR_VIDEO_DATA_8_UUID
+  };
 
   Serial.println("Creating Video Data characteristics 5-8...");
   for (int i = 0; i < 4; i++) {
     pCharVideoData[i + 4] = pVideoDataService2->createCharacteristic(
-        dataUUIDs2[i], BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+      dataUUIDs2[i], BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     pCharVideoData[i + 4]->addDescriptor(new BLE2902());
     Serial.printf("Video Data channel %d created: %p\n", i + 5, pCharVideoData[i + 4]);
   }
@@ -308,7 +315,7 @@ void BLEVideoStream::cleanup() {
 }
 
 bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
-                                        const uint8_t chunkDelayMs) {
+                                      const uint8_t chunkDelayMs) {
   Serial.println("=== Starting Video Stream ===");
 
   cancelVideoTransfer();
@@ -328,7 +335,7 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
   streamStartTime = millis();
 
   const framesize_t resolutions[] = {
-    FRAMESIZE_QQVGA, FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA, 
+    FRAMESIZE_QQVGA, FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA,
     FRAMESIZE_XGA, FRAMESIZE_HD, FRAMESIZE_SXGA, FRAMESIZE_UXGA
   };
 

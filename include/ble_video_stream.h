@@ -11,7 +11,7 @@
 #define BLE_DEVICE_NAME "CyberGlass"
 
 // BLE Services for Video Stream
-#define BLE_VIDEO_SERVICE_UUID "503848c4-bce3-11f0-9ccd-bf30decea150" 
+#define BLE_VIDEO_SERVICE_UUID "503848c4-bce3-11f0-9ccd-bf30decea150"
 #define BLE_VIDEO_DATA_SERVICE_1_UUID "55a9c06c-bce3-11f0-a025-7fecb01921e9"
 #define BLE_VIDEO_DATA_SERVICE_2_UUID "5a7c0b7c-bce3-11f0-b0e7-67cbb27841b4"
 
@@ -40,16 +40,24 @@ public:
   BLEVideoStream();
 
   bool initBLE();
+
   bool startVideoStream(uint8_t resolutionIndex, uint8_t quality, uint8_t targetFps, uint8_t chunkDelayMs = 50);
+
   void stopVideoStream();
+
   bool isVideoStreamActive() const;
+
   void processVideoStream();
+
   String getDeviceName() const;
+
   void cleanup();
 
 private:
   bool sendVideoChunk(uint16_t chunkIndex, int count = -1);
+
   void cancelVideoTransfer();
+
   bool isVideoTransferActive() const;
 
   BLEServer *pServer;
