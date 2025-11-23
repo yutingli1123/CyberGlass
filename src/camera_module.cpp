@@ -207,17 +207,17 @@ bool initCamera() {
       s->set_contrast(s, 0); // -2 to 2
       s->set_saturation(s, 0); // -2 to 2
       s->set_sharpness(s, 0); // OV5640 specific
-      s->set_denoise(s, 0); // OV5640 specific
+      s->set_denoise(s, 0); // Disabled denoise
       s->set_whitebal(s, 1); // Enable white balance
       s->set_awb_gain(s, 1); // Enable AWB gain
       s->set_wb_mode(s, 0); // Auto white balance
       s->set_exposure_ctrl(s, 1); // Enable AEC
       s->set_aec2(s, 1); // Enable AEC DSP
-      s->set_ae_level(s, 0); // -2 to 2
-      s->set_aec_value(s, 300); // 0 to 1200
-      s->set_gain_ctrl(s, 1); // Enable AGC
-      s->set_agc_gain(s, 0); // 0 to 30
-      s->set_gainceiling(s, static_cast<gainceiling_t>(0)); // 0 to 6
+      s->set_ae_level(s, 0); // Neutral exposure compensation
+      s->set_aec_value(s, 300); // Default exposure value
+      s->set_gain_ctrl(s, 0); // Enable auto gain
+      s->set_agc_gain(s, 5); // Auto gain (value not used in auto mode)
+      s->set_gainceiling(s, static_cast<gainceiling_t>(0)); // Gain ceiling (0-6)
       s->set_bpc(s, 1); // Black pixel correction
       s->set_wpc(s, 1); // White pixel correction
       s->set_raw_gma(s, 1); // Enable gamma correction
