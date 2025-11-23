@@ -1,9 +1,9 @@
 #include <Arduino.h>
-#include "ble_image_transfer.h"
+#include "ble_video_stream.h"
 #include "camera_module.h"
 
 // Global instances
-BLEImageTransfer bleImageTransfer;
+BLEVideoStream bleVideoStream;
 
 void setup() {
   Serial.begin(115200); // Initialize serial communication
@@ -12,7 +12,6 @@ void setup() {
   // Initialize system
   Serial.println("\n========================================");
   Serial.println("  XIAO ESP32S3 - CyberGlass System");
-  Serial.println("  BLE-Only Mode");
   Serial.println("========================================");
 
   // Initialize camera module
@@ -22,25 +21,25 @@ void setup() {
     Serial.println("[" + getTimestamp() + "] WARNING: Camera initialization failed");
   }
 
-  // Initialize BLE with image transfer support
-  if (bleImageTransfer.initBLE()) {
-    Serial.println("[" + getTimestamp() + "] BLE Image Transfer: READY");
+  // Initialize BLE with video stream support
+  if (bleVideoStream.initBLE()) {
+    Serial.println("[" + getTimestamp() + "] BLE Video Stream: READY");
   } else {
     Serial.println("[" + getTimestamp() + "] WARNING: BLE initialization failed");
   }
 
   // Print connection information
   Serial.println("\n========================================");
-  Serial.println("BLE Device Name: " + bleImageTransfer.getDeviceName());
+  Serial.println("BLE Device Name: " + bleVideoStream.getDeviceName());
   Serial.println("Use a BLE scanner app to:");
-  Serial.println("  - Request and transfer images via BLE");
+  Serial.println("  - Start and stop the video stream");
   Serial.println("\nNote: BLE is open for connections (within range ~10m)");
   Serial.println("========================================\n");
 }
 
 void loop() {
-  // Process pending BLE image requests
-  bleImageTransfer.processPendingRequests();
+  // Process video stream (if active)
+  bleVideoStream.processVideoStream();
 
   // Yield to system tasks
   yield();
