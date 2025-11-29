@@ -179,9 +179,6 @@ class VideoStreamReceiver:
                 print(f"\n  Warning: Failed to decode frame {self.current_frame_number}")
                 return
 
-            # Mirror flip the image (horizontal flip)
-            img = cv2.flip(img, 1)
-
             # Display frame
             if self.display:
                 # Add frame info overlay

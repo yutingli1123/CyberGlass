@@ -196,7 +196,7 @@ bool initCamera() {
       s->set_wpc(s, 1); // White pixel correction
       s->set_raw_gma(s, 1); // Enable gamma correction
       s->set_lenc(s, 1); // Enable lens correction
-      s->set_hmirror(s, 0); // Horizontal mirror: 0 = disable, 1 = enable
+      s->set_hmirror(s, 1); // Horizontal mirror: 0 = disable, 1 = enable
       s->set_vflip(s, 0); // Vertical flip: 0 = disable, 1 = enable
       s->set_dcw(s, 1); // Enable downsize
       s->set_colorbar(s, 0); // Disable color bar test pattern
@@ -222,7 +222,7 @@ bool initCamera() {
       s->set_wpc(s, 1); // White pixel correction
       s->set_raw_gma(s, 1); // Enable gamma correction
       s->set_lenc(s, 1); // Enable lens correction
-      s->set_hmirror(s, 0); // Horizontal mirror
+      s->set_hmirror(s, 1); // Horizontal mirror
       s->set_vflip(s, 0); // Vertical flip
       s->set_dcw(s, 1); // Enable downsize
       s->set_colorbar(s, 0); // Disable color bar
