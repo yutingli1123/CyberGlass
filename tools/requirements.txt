@@ -9,4 +9,4 @@ pyserial>=3.5
 
 # OpenCV and NumPy (for video display in video_stream.py and fast_video_stream.py)
 opencv-python>=4.12.0.88
-numpy>=2.3.5
+numpy>=2.2.6
