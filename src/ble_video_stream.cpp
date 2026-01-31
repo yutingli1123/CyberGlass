@@ -4,11 +4,24 @@
 #include "esp_system.h"
 
 // BLE Server Callbacks for handling connections/disconnections
+// BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
+  BLEVideoStream *stream;
+
+public:
+  explicit CyberGlassBLEServerCallbacks(BLEVideoStream *s) : stream(s) {}
+
   void onConnect(BLEServer *pServer) override { Serial.println("BLE: Client connected"); }
 
   void onDisconnect(BLEServer *pServer) override {
     Serial.println("BLE: Client disconnected");
+
+    // Stop video stream if active and reset state
+    if (stream) {
+      Serial.println("BLE: Requesting stream stop due to disconnect");
+      stream->stopVideoStream();
+    }
+
     // Restart advertising so other devices can connect
     BLEDevice::startAdvertising();
     Serial.println("BLE: Advertising restarted");
@@ -99,7 +112,8 @@ BLEVideoStream::BLEVideoStream() :
     pCharVideoInfo(nullptr), pCharVideoControl(nullptr), pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
     videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0), videoTransferActive(false),
     hasPendingChunkRequests(false), pendingChunkCount(0), videoStreamActive(false), videoResolutionIndex(2),
-    videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200) {
+    videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200), startRequested(false),
+    stopRequested(false) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -122,7 +136,7 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("BLE Server created: %p\n", pServer);
 
   // Set server callbacks for connection/disconnection events
-  pServerCallbacks = new CyberGlassBLEServerCallbacks();
+  pServerCallbacks = new CyberGlassBLEServerCallbacks(this);
   pServer->setCallbacks(pServerCallbacks);
 
   // Create Video Control Service (Info and Control characteristics)
@@ -241,11 +255,19 @@ bool BLEVideoStream::sendVideoChunk(const uint16_t chunkIndex, const int count) 
     pCharVideoData[i]->setValue(chunkData, chunkSize + 2);
     pCharVideoData[i]->notify();
 
+    // Delay to prevent cellular BLE stack congestion
+    delay(8);
+
     currentChunk = currentChunkIndex;
   }
 
-  int delayMs = videoStreamActive ? videoChunkDelayMs : 50;
-  delay(delayMs);
+  // Adaptive delay: wait longer if we are sending many chunks
+  int baseDelay = videoStreamActive ? videoChunkDelayMs : 50;
+  // Ensure we don't flood the stack even with the delay
+  if (baseDelay < 10)
+    baseDelay = 10;
+
+  delay(baseDelay);
 
   Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks,
                 chunksToSend);
@@ -302,18 +324,38 @@ void BLEVideoStream::cleanup() {
   Serial.println("BLE Video Stream: Cleanup complete");
 }
 
-bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
+void BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
                                       const uint8_t chunkDelayMs) {
-  Serial.println("=== Starting Video Stream ===");
+  Serial.println("=== Starting Video Stream (Requested) ===");
+
+  // Store params and set flag for processing in main loop
+  pendingParams.resolutionIndex = resolutionIndex;
+  pendingParams.quality = quality;
+  pendingParams.targetFps = targetFps;
+  pendingParams.chunkDelayMs = chunkDelayMs;
+
+  startRequested = true;
+}
+
+void BLEVideoStream::performStartVideoStream() {
+  uint8_t resolutionIndex = pendingParams.resolutionIndex;
+  uint8_t quality = pendingParams.quality;
+  uint8_t targetFps = pendingParams.targetFps;
+  uint8_t chunkDelayMs = pendingParams.chunkDelayMs;
+
+  Serial.println("=== Performing Start Video Stream ===");
 
   cancelVideoTransfer();
-  cancelVideoTransfer();
-  stopVideoStream();
+  // cancelVideoTransfer(); // calling once is enough
+  // stopVideoStream(); // Don't call stopVideoStream here as it sets valid flag. Call internal stop logic if needed.
+  if (videoStreamActive) {
+    performStopVideoStream(); // Ensure we are stopped
+  }
 
   // Wake up camera
   if (!sleepCamera(false)) {
     Serial.println("Failed to wake camera!");
-    return false;
+    return;
   }
 
   // Boost CPU frequency for performance
@@ -322,7 +364,7 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
 
   if (targetFps == 0 || targetFps > 10) {
     Serial.printf("Invalid FPS: %d (valid range: 1-10)\n", targetFps);
-    return false;
+    return;
   }
 
   videoResolutionIndex = resolutionIndex;
@@ -343,7 +385,7 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
 
   if (!changeResolution(targetResolution)) {
     Serial.println("Failed to change resolution");
-    return false;
+    return;
   }
 
   if (!changeQuality(quality)) {
@@ -370,15 +412,20 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
   }
 
   Serial.println("======================================");
-  return true;
 }
 
 void BLEVideoStream::stopVideoStream() {
+  Serial.println("=== Stopping Video Stream (Requested) ===");
+  stopRequested = true;
+  startRequested = false; // Cancel any pending start request
+}
+
+void BLEVideoStream::performStopVideoStream() {
   if (!videoStreamActive) {
     return;
   }
 
-  Serial.println("=== Stopping Video Stream ===");
+  Serial.println("=== Performing Stop Video Stream ===");
   videoStreamActive = false;
 
   // Reduce CPU frequency to save power
@@ -410,6 +457,17 @@ void BLEVideoStream::stopVideoStream() {
 bool BLEVideoStream::isVideoStreamActive() const { return videoStreamActive; }
 
 void BLEVideoStream::processVideoStream() {
+  // Handle start/stop requests from BLE callback
+  if (stopRequested) {
+    stopRequested = false;
+    performStopVideoStream();
+  }
+
+  if (startRequested) {
+    startRequested = false;
+    performStartVideoStream();
+  }
+
   if (!videoStreamActive) {
     return;
   }
