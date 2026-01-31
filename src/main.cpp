@@ -9,6 +9,10 @@ void setup() {
   Serial.begin(115200); // Initialize serial communication
   // delay(1000);
 
+  // Set initial CPU frequency to 80MHz for power saving
+  setCpuFrequencyMhz(80);
+
+
   // Initialize system
   Serial.println("\n========================================");
   Serial.println("  XIAO ESP32S3 - CyberGlass System");
@@ -41,6 +45,11 @@ void loop() {
   // Process video stream (if active)
   bleVideoStream.processVideoStream();
 
-  // Yield to system tasks
-  yield();
+  // Power saving: if video is not streaming, sleep longer
+  if (!bleVideoStream.isVideoStreamActive()) {
+    delay(100); // Light sleep during idle
+  } else {
+    // Yield to system tasks
+    yield();
+  }
 }

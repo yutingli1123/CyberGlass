@@ -35,6 +35,13 @@ bool changeResolution(framesize_t frameSize);
 bool changeQuality(int quality);
 
 /**
+ * @brief Set camera sleep mode
+ * @param enable true to sleep (deinit), false to wake (init)
+ * @return true if successful
+ */
+bool sleepCamera(bool enable);
+
+/**
  * @brief Process serial commands for camera control
  * Commands:
  *   - "init" or "i": (Re)initialize camera module
