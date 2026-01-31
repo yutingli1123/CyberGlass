@@ -4,13 +4,24 @@
 #include "esp_system.h"
 
 // BLE Server Callbacks for handling connections/disconnections
+// BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) override {
-    Serial.println("BLE: Client connected");
-  }
+  BLEVideoStream *stream;
+
+public:
+  explicit CyberGlassBLEServerCallbacks(BLEVideoStream *s) : stream(s) {}
+
+  void onConnect(BLEServer *pServer) override { Serial.println("BLE: Client connected"); }
 
   void onDisconnect(BLEServer *pServer) override {
     Serial.println("BLE: Client disconnected");
+
+    // Stop video stream if active and reset state
+    if (stream) {
+      Serial.println("BLE: Requesting stream stop due to disconnect");
+      stream->stopVideoStream();
+    }
+
     // Restart advertising so other devices can connect
     BLEDevice::startAdvertising();
     Serial.println("BLE: Advertising restarted");
@@ -22,8 +33,7 @@ class VideoStreamCallbacks final : public BLECharacteristicCallbacks {
   BLEVideoStream *stream;
 
 public:
-  explicit VideoStreamCallbacks(BLEVideoStream *st) : stream(st) {
-  }
+  explicit VideoStreamCallbacks(BLEVideoStream *st) : stream(st) {}
 
   void onWrite(BLECharacteristic *pCharacteristic) override {
     const std::string uuid = pCharacteristic->getUUID().toString();
@@ -56,19 +66,18 @@ public:
           const int maxChunksFromData = (value.length() - 3) / 2; // Skip [cmd, count_low, count_high]
           const int chunksToProcess = min((int) count, min(maxChunksFromData, 8));
 
-          Serial.printf("BLE: Can parse %d chunks from %d bytes, will process %d\n",
-                        maxChunksFromData, value.length(), chunksToProcess);
+          Serial.printf("BLE: Can parse %d chunks from %d bytes, will process %d\n", maxChunksFromData, value.length(),
+                        chunksToProcess);
 
           // Parse chunk indexes and store for later processing
           stream->pendingChunkCount = 0;
           for (int i = 0; i < chunksToProcess; i++) {
             const int dataIndex = 3 + i * 2; // Start from bytes[3], not bytes[2]
             if (dataIndex + 1 < value.length()) {
-              const uint16_t chunkIndex = static_cast<uint8_t>(value[dataIndex]) |
-                                          (static_cast<uint8_t>(value[dataIndex + 1]) << 8);
+              const uint16_t chunkIndex =
+                  static_cast<uint8_t>(value[dataIndex]) | (static_cast<uint8_t>(value[dataIndex + 1]) << 8);
               stream->pendingChunkIndexes[stream->pendingChunkCount++] = chunkIndex;
-              Serial.printf("  - Chunk %d (bytes[%d,%d] = 0x%02X,0x%02X)\n",
-                            chunkIndex, dataIndex, dataIndex + 1,
+              Serial.printf("  - Chunk %d (bytes[%d,%d] = 0x%02X,0x%02X)\n", chunkIndex, dataIndex, dataIndex + 1,
                             static_cast<uint8_t>(value[dataIndex]), static_cast<uint8_t>(value[dataIndex + 1]));
             }
           }
@@ -98,16 +107,13 @@ public:
   }
 };
 
-BLEVideoStream::BLEVideoStream() : pServer(nullptr), pVideoService(nullptr), pVideoDataService1(nullptr),
-                                   pVideoDataService2(nullptr),
-                                   pCharVideoInfo(nullptr), pCharVideoControl(nullptr),
-                                   pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
-                                   videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0),
-                                   videoTransferActive(false),
-                                   hasPendingChunkRequests(false), pendingChunkCount(0),
-                                   videoStreamActive(false), videoResolutionIndex(2), videoQuality(50),
-                                   videoTargetFps(5),
-                                   frameCount(0), streamStartTime(0), frameInterval(200) {
+BLEVideoStream::BLEVideoStream() :
+    pServer(nullptr), pVideoService(nullptr), pVideoDataService1(nullptr), pVideoDataService2(nullptr),
+    pCharVideoInfo(nullptr), pCharVideoControl(nullptr), pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
+    videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0), videoTransferActive(false),
+    hasPendingChunkRequests(false), pendingChunkCount(0), videoStreamActive(false), videoResolutionIndex(2),
+    videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200), startRequested(false),
+    stopRequested(false) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -130,7 +136,7 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("BLE Server created: %p\n", pServer);
 
   // Set server callbacks for connection/disconnection events
-  pServerCallbacks = new CyberGlassBLEServerCallbacks();
+  pServerCallbacks = new CyberGlassBLEServerCallbacks(this);
   pServer->setCallbacks(pServerCallbacks);
 
   // Create Video Control Service (Info and Control characteristics)
@@ -141,14 +147,14 @@ bool BLEVideoStream::initBLE() {
   // Create Video Info Characteristic (Read/Notify) - Video stream metadata
   Serial.println("Creating Video Info characteristic...");
   pCharVideoInfo = pVideoService->createCharacteristic(
-    BLE_CHAR_VIDEO_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+      BLE_CHAR_VIDEO_INFO_UUID, BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
   pCharVideoInfo->addDescriptor(new BLE2902());
   Serial.printf("Video Info created: %p\n", pCharVideoInfo);
 
   // Create Video Control Characteristic (Write) - Video stream control
   Serial.println("Creating Video Control characteristic...");
   pCharVideoControl = pVideoService->createCharacteristic(
-    BLE_CHAR_VIDEO_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+      BLE_CHAR_VIDEO_CONTROL_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
   pVideoControlCallbacks = new VideoStreamCallbacks(this);
   pCharVideoControl->setCallbacks(pVideoControlCallbacks);
   Serial.printf("Video Control created: %p\n", pCharVideoControl);
@@ -163,15 +169,13 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("Video Data Service 1 created: %p\n", pVideoDataService1);
 
   // Create Video Data Characteristics for Service 1 (channels 1-4)
-  const char *dataUUIDs1[4] = {
-    BLE_CHAR_VIDEO_DATA_1_UUID, BLE_CHAR_VIDEO_DATA_2_UUID, BLE_CHAR_VIDEO_DATA_3_UUID,
-    BLE_CHAR_VIDEO_DATA_4_UUID
-  };
+  const char *dataUUIDs1[4] = {BLE_CHAR_VIDEO_DATA_1_UUID, BLE_CHAR_VIDEO_DATA_2_UUID, BLE_CHAR_VIDEO_DATA_3_UUID,
+                               BLE_CHAR_VIDEO_DATA_4_UUID};
 
   Serial.println("Creating Video Data characteristics 1-4...");
   for (int i = 0; i < 4; i++) {
     pCharVideoData[i] = pVideoDataService1->createCharacteristic(dataUUIDs1[i], BLECharacteristic::PROPERTY_READ |
-                                                                   BLECharacteristic::PROPERTY_NOTIFY);
+                                                                                    BLECharacteristic::PROPERTY_NOTIFY);
     pCharVideoData[i]->addDescriptor(new BLE2902());
     Serial.printf("Video Data channel %d created: %p\n", i + 1, pCharVideoData[i]);
   }
@@ -186,15 +190,13 @@ bool BLEVideoStream::initBLE() {
   Serial.printf("Video Data Service 2 created: %p\n", pVideoDataService2);
 
   // Create Video Data Characteristics for Service 2 (channels 5-8)
-  const char *dataUUIDs2[4] = {
-    BLE_CHAR_VIDEO_DATA_5_UUID, BLE_CHAR_VIDEO_DATA_6_UUID, BLE_CHAR_VIDEO_DATA_7_UUID,
-    BLE_CHAR_VIDEO_DATA_8_UUID
-  };
+  const char *dataUUIDs2[4] = {BLE_CHAR_VIDEO_DATA_5_UUID, BLE_CHAR_VIDEO_DATA_6_UUID, BLE_CHAR_VIDEO_DATA_7_UUID,
+                               BLE_CHAR_VIDEO_DATA_8_UUID};
 
   Serial.println("Creating Video Data characteristics 5-8...");
   for (int i = 0; i < 4; i++) {
     pCharVideoData[i + 4] = pVideoDataService2->createCharacteristic(
-      dataUUIDs2[i], BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+        dataUUIDs2[i], BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
     pCharVideoData[i + 4]->addDescriptor(new BLE2902());
     Serial.printf("Video Data channel %d created: %p\n", i + 5, pCharVideoData[i + 4]);
   }
@@ -253,11 +255,19 @@ bool BLEVideoStream::sendVideoChunk(const uint16_t chunkIndex, const int count) 
     pCharVideoData[i]->setValue(chunkData, chunkSize + 2);
     pCharVideoData[i]->notify();
 
+    // Delay to prevent cellular BLE stack congestion
+    delay(8);
+
     currentChunk = currentChunkIndex;
   }
 
-  int delayMs = videoStreamActive ? videoChunkDelayMs : 50;
-  delay(delayMs);
+  // Adaptive delay: wait longer if we are sending many chunks
+  int baseDelay = videoStreamActive ? videoChunkDelayMs : 50;
+  // Ensure we don't flood the stack even with the delay
+  if (baseDelay < 10)
+    baseDelay = 10;
+
+  delay(baseDelay);
 
   Serial.printf("Sent chunks %d-%d/%d (batch of %d)\n", chunkIndex + 1, chunkIndex + chunksToSend, totalChunks,
                 chunksToSend);
@@ -314,16 +324,47 @@ void BLEVideoStream::cleanup() {
   Serial.println("BLE Video Stream: Cleanup complete");
 }
 
-bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
+void BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8_t quality, const uint8_t targetFps,
                                       const uint8_t chunkDelayMs) {
-  Serial.println("=== Starting Video Stream ===");
+  Serial.println("=== Starting Video Stream (Requested) ===");
+
+  // Store params and set flag for processing in main loop
+  pendingParams.resolutionIndex = resolutionIndex;
+  pendingParams.quality = quality;
+  pendingParams.targetFps = targetFps;
+  pendingParams.chunkDelayMs = chunkDelayMs;
+
+  startRequested = true;
+}
+
+void BLEVideoStream::performStartVideoStream() {
+  uint8_t resolutionIndex = pendingParams.resolutionIndex;
+  uint8_t quality = pendingParams.quality;
+  uint8_t targetFps = pendingParams.targetFps;
+  uint8_t chunkDelayMs = pendingParams.chunkDelayMs;
+
+  Serial.println("=== Performing Start Video Stream ===");
 
   cancelVideoTransfer();
-  stopVideoStream();
+  // cancelVideoTransfer(); // calling once is enough
+  // stopVideoStream(); // Don't call stopVideoStream here as it sets valid flag. Call internal stop logic if needed.
+  if (videoStreamActive) {
+    performStopVideoStream(); // Ensure we are stopped
+  }
+
+  // Wake up camera
+  if (!sleepCamera(false)) {
+    Serial.println("Failed to wake camera!");
+    return;
+  }
+
+  // Boost CPU frequency for performance
+  setCpuFrequencyMhz(240);
+  Serial.printf("CPU Frequency set to %d MHz\n", getCpuFrequencyMhz());
 
   if (targetFps == 0 || targetFps > 10) {
     Serial.printf("Invalid FPS: %d (valid range: 1-10)\n", targetFps);
-    return false;
+    return;
   }
 
   videoResolutionIndex = resolutionIndex;
@@ -334,10 +375,8 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
   frameCount = 0;
   streamStartTime = millis();
 
-  const framesize_t resolutions[] = {
-    FRAMESIZE_QQVGA, FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA,
-    FRAMESIZE_XGA, FRAMESIZE_HD, FRAMESIZE_SXGA, FRAMESIZE_UXGA
-  };
+  const framesize_t resolutions[] = {FRAMESIZE_QQVGA, FRAMESIZE_QVGA, FRAMESIZE_VGA,  FRAMESIZE_SVGA,
+                                     FRAMESIZE_XGA,   FRAMESIZE_HD,   FRAMESIZE_SXGA, FRAMESIZE_UXGA};
 
   framesize_t targetResolution = FRAMESIZE_VGA;
   if (resolutionIndex < 8) {
@@ -346,7 +385,7 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
 
   if (!changeResolution(targetResolution)) {
     Serial.println("Failed to change resolution");
-    return false;
+    return;
   }
 
   if (!changeQuality(quality)) {
@@ -373,16 +412,28 @@ bool BLEVideoStream::startVideoStream(const uint8_t resolutionIndex, const uint8
   }
 
   Serial.println("======================================");
-  return true;
 }
 
 void BLEVideoStream::stopVideoStream() {
+  Serial.println("=== Stopping Video Stream (Requested) ===");
+  stopRequested = true;
+  startRequested = false; // Cancel any pending start request
+}
+
+void BLEVideoStream::performStopVideoStream() {
   if (!videoStreamActive) {
     return;
   }
 
-  Serial.println("=== Stopping Video Stream ===");
+  Serial.println("=== Performing Stop Video Stream ===");
   videoStreamActive = false;
+
+  // Reduce CPU frequency to save power
+  setCpuFrequencyMhz(80);
+  Serial.printf("CPU Frequency set to %d MHz\n", getCpuFrequencyMhz());
+
+  // Put camera to sleep
+  sleepCamera(true);
 
   if (videoBuffer) {
     free(videoBuffer);
@@ -403,11 +454,20 @@ void BLEVideoStream::stopVideoStream() {
   Serial.println("======================================");
 }
 
-bool BLEVideoStream::isVideoStreamActive() const {
-  return videoStreamActive;
-}
+bool BLEVideoStream::isVideoStreamActive() const { return videoStreamActive; }
 
 void BLEVideoStream::processVideoStream() {
+  // Handle start/stop requests from BLE callback
+  if (stopRequested) {
+    stopRequested = false;
+    performStopVideoStream();
+  }
+
+  if (startRequested) {
+    startRequested = false;
+    performStartVideoStream();
+  }
+
   if (!videoStreamActive) {
     return;
   }

@@ -41,9 +41,12 @@ public:
 
   bool initBLE();
 
-  bool startVideoStream(uint8_t resolutionIndex, uint8_t quality, uint8_t targetFps, uint8_t chunkDelayMs = 50);
+  // Requests start of video stream (processed in main loop)
+  void startVideoStream(uint8_t resolutionIndex, uint8_t quality, uint8_t targetFps, uint8_t chunkDelayMs = 50);
 
+  // Requests stop of video stream (processed in main loop)
   void stopVideoStream();
+
 
   bool isVideoStreamActive() const;
 
@@ -88,6 +91,21 @@ private:
   uint32_t frameCount;
   unsigned long streamStartTime;
   unsigned long frameInterval;
+
+  // Request flags for main loop processing
+  volatile bool startRequested;
+  volatile bool stopRequested;
+
+  struct VideoStreamParams {
+    uint8_t resolutionIndex;
+    uint8_t quality;
+    uint8_t targetFps;
+    uint8_t chunkDelayMs;
+  } pendingParams;
+
+  void performStartVideoStream();
+  void performStopVideoStream();
+
 
   char deviceName[32];
 

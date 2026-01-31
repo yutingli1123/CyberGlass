@@ -246,6 +246,34 @@ bool initCamera() {
 }
 
 /**
+ * @brief Set camera sleep mode
+ * @param enable true to sleep (deinit), false to wake (re-init)
+ * @return true if successful
+ */
+bool sleepCamera(bool enable) {
+  if (enable) {
+    if (!cameraInitialized)
+      return true; // Already sleeping/deinitialized
+
+    Serial.println("[" + getTimestamp() + "] Putting camera to sleep (Deinit)...");
+    esp_err_t err = esp_camera_deinit();
+    if (err == ESP_OK) {
+      cameraInitialized = false;
+      return true;
+    } else {
+      Serial.printf("[%s] Failed to deinit camera: 0x%X\n", getTimestamp().c_str(), err);
+      return false;
+    }
+  } else {
+    if (cameraInitialized)
+      return true; // Already awake
+
+    Serial.println("[" + getTimestamp() + "] Waking camera (Init)...");
+    return initCamera();
+  }
+}
+
+/**
  * @brief Get resolution name string
  * @param frameSize Frame size
  * @return Resolution name with dimensions
