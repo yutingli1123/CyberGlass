@@ -6,11 +6,6 @@
 // BLE Server Callbacks for handling connections/disconnections
 // BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
-  BLEVideoStream *stream;
-
-public:
-  explicit CyberGlassBLEServerCallbacks(BLEVideoStream *s) : stream(s) {}
-
   void onConnect(BLEServer *pServer) override { Serial.println("BLE: Client connected"); }
 
   void onDisconnect(BLEServer *pServer) override {
@@ -112,8 +107,7 @@ BLEVideoStream::BLEVideoStream() :
     pCharVideoInfo(nullptr), pCharVideoControl(nullptr), pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
     videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0), videoTransferActive(false),
     hasPendingChunkRequests(false), pendingChunkCount(0), videoStreamActive(false), videoResolutionIndex(2),
-    videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200), startRequested(false),
-    stopRequested(false) {
+    videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -346,16 +340,13 @@ void BLEVideoStream::performStartVideoStream() {
   Serial.println("=== Performing Start Video Stream ===");
 
   cancelVideoTransfer();
-  // cancelVideoTransfer(); // calling once is enough
-  // stopVideoStream(); // Don't call stopVideoStream here as it sets valid flag. Call internal stop logic if needed.
-  if (videoStreamActive) {
-    performStopVideoStream(); // Ensure we are stopped
-  }
+  cancelVideoTransfer();
+  stopVideoStream();
 
   // Wake up camera
   if (!sleepCamera(false)) {
     Serial.println("Failed to wake camera!");
-    return;
+    return false;
   }
 
   // Boost CPU frequency for performance
