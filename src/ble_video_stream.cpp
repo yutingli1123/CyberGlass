@@ -97,8 +97,8 @@ public:
           const uint8_t resolutionIndex = static_cast<uint8_t>(value[1]);
           const uint8_t quality = static_cast<uint8_t>(value[2]);
           const uint8_t chunkDelayMs = (value.length() >= 4) ? static_cast<uint8_t>(value[3]) : 50; // Default 50ms
-          Serial.printf("BLE: Start video stream - Resolution: %d, Quality: %d, ChunkDelay: %dms\n",
-                        resolutionIndex, quality, chunkDelayMs);
+          Serial.printf("BLE: Start video stream - Resolution: %d, Quality: %d, ChunkDelay: %dms\n", resolutionIndex,
+                        quality, chunkDelayMs);
           stream->startVideoStream(resolutionIndex, quality, chunkDelayMs);
         } else if (command == 4) {
           // Stop video stream: [4]
@@ -115,8 +115,8 @@ BLEVideoStream::BLEVideoStream() :
     pCharVideoInfo(nullptr), pCharVideoControl(nullptr), pServerCallbacks(nullptr), pVideoControlCallbacks(nullptr),
     videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0), videoTransferActive(false),
     hasPendingChunkRequests(false), pendingChunkCount(0), videoStreamActive(false), videoResolutionIndex(2),
-    videoQuality(50), frameCount(0), streamStartTime(0), startRequested(false),
-    stopRequested(false), waitingForFrameAck(false), frameAckReceived(false) {
+    videoQuality(50), frameCount(0), streamStartTime(0), startRequested(false), stopRequested(false),
+    waitingForFrameAck(false), frameAckReceived(false) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -394,15 +394,15 @@ void BLEVideoStream::performStartVideoStream() {
 
   videoStreamActive = true;
 
-  Serial.printf("Video stream started: Resolution=%d, Quality=%d, ChunkDelay=%d ms\n",
-                resolutionIndex, quality, chunkDelayMs);
+  Serial.printf("Video stream started: Resolution=%d, Quality=%d, ChunkDelay=%d ms\n", resolutionIndex, quality,
+                chunkDelayMs);
 
   if (pCharVideoInfo) {
     uint8_t streamInfo[7];
     streamInfo[0] = 5;
     streamInfo[1] = resolutionIndex;
     streamInfo[2] = quality;
-    streamInfo[3] = 0; // Removed FPS
+    streamInfo[3] = 0; // Reserved
     streamInfo[4] = 0;
     streamInfo[5] = 0;
     streamInfo[6] = 0;
@@ -509,7 +509,6 @@ void BLEVideoStream::processVideoStream() {
       return; // BLOCK new frame capture indefinitely until ACK or Stop
     }
   }
-
 
 
   if (videoBuffer) {

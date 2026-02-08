@@ -95,7 +95,6 @@ class VideoStreamReceiver:
             # Video stream started
             res_idx = data[1]
             quality = data[2]
-            fps = data[3]
             print(f"\n✓ Video stream started:")
             print(f"  Resolution: {RESOLUTION_NAMES[res_idx] if res_idx < 8 else 'Unknown'}")
             print(f"  Quality: {quality}")
