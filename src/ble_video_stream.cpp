@@ -92,11 +92,11 @@ public:
           // Client confirms full frame received
           Serial.println("BLE: Frame ACK received");
           stream->frameAckReceived = true;
-        } else if (command == 3 && value.length() >= 4) {
-          // Start video stream: [3, resolution_index, quality, fps, chunk_delay_ms (optional)]
+        } else if (command == 3 && value.length() >= 3) {
+          // Start video stream: [3, resolution_index, quality, chunk_delay_ms (optional)]
           const uint8_t resolutionIndex = static_cast<uint8_t>(value[1]);
           const uint8_t quality = static_cast<uint8_t>(value[2]);
-          const uint8_t chunkDelayMs = (value.length() >= 5) ? static_cast<uint8_t>(value[4]) : 50; // Default 50ms
+          const uint8_t chunkDelayMs = (value.length() >= 4) ? static_cast<uint8_t>(value[3]) : 50; // Default 50ms
           Serial.printf("BLE: Start video stream - Resolution: %d, Quality: %d, ChunkDelay: %dms\n",
                         resolutionIndex, quality, chunkDelayMs);
           stream->startVideoStream(resolutionIndex, quality, chunkDelayMs);
@@ -402,7 +402,7 @@ void BLEVideoStream::performStartVideoStream() {
     streamInfo[0] = 5;
     streamInfo[1] = resolutionIndex;
     streamInfo[2] = quality;
-    streamInfo[3] = 0;
+    streamInfo[3] = 0; // Removed FPS
     streamInfo[4] = 0;
     streamInfo[5] = 0;
     streamInfo[6] = 0;

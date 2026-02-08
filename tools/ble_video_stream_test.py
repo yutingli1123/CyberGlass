@@ -14,7 +14,6 @@ Usage:
 Options:
     --resolution INDEX    Resolution index 0-7 (default: 2 for VGA)
     --quality VALUE       JPEG quality 10-63 (default: 50)
-    --fps VALUE          Target FPS 1-10 (default: 5)
     --device-name PREFIX  Device name prefix (default: "CyberGlass")
     --output DIR         Output directory for saving frames (optional)
     --no-display         Disable real-time display window
@@ -100,7 +99,6 @@ class VideoStreamReceiver:
             print(f"\n✓ Video stream started:")
             print(f"  Resolution: {RESOLUTION_NAMES[res_idx] if res_idx < 8 else 'Unknown'}")
             print(f"  Quality: {quality}")
-            print(f"  Target FPS: {fps}")
             self.stream_active = True
             self.start_time = datetime.now()
 
@@ -122,7 +120,7 @@ class VideoStreamReceiver:
                 actual_fps = 1.0 / elapsed if elapsed > 0 else 0
                 print(f"\rFrame {frame_count}: {total_chunks} chunks (FPS: {actual_fps:.1f})   ", end="", flush=True)
             else:
-                print(f"\rFrame {frame_count}: {total_chunks} chunks", end="", flush=True)
+                print(f"  Frame ACK sent for frame {frame_count}")
 
             self.last_frame_time = current_time
 
@@ -297,7 +295,7 @@ async def find_cyberglass_device(device_name_prefix="CyberGlass"):
     return None
 
 
-async def stream_video(address, resolution, quality, fps, chunk_delay, output_dir, display):
+async def stream_video(address, resolution, quality, chunk_delay, output_dir, display):
     """Connect to device and stream video"""
 
     print(f"\nConnecting to {address}...")
@@ -320,10 +318,9 @@ async def stream_video(address, resolution, quality, fps, chunk_delay, output_di
         print(f"\nStarting video stream...")
         print(f"  Resolution: {RESOLUTION_NAMES[resolution]}")
         print(f"  Quality: {quality}")
-        print(f"  Target FPS: {fps}")
         print(f"  Chunk Delay: {chunk_delay}ms")
 
-        command = bytes([3, resolution, quality, fps, chunk_delay])
+        command = bytes([3, resolution, quality, chunk_delay])
         await client.write_gatt_char(IMAGE_CONTROL_UUID, command, response=False)
 
         # Stream continuously until stopped
@@ -372,14 +369,14 @@ Resolution Index:
   7 = UXGA (1600x1200)
 
 Examples:
-  # Stream VGA @ 5 FPS (stop with 'q' or Ctrl+C)
+  # Stream VGA (stop with 'q' or Ctrl+C)
   python ble_video_stream_test.py
 
-  # Stream QVGA @ 8 FPS
-  python ble_video_stream_test.py --resolution 1 --fps 8
+  # Stream QVGA
+  python ble_video_stream_test.py --resolution 1
 
-  # Stream VGA @ 3 FPS with high quality
-  python ble_video_stream_test.py --fps 3 --quality 30
+  # Stream VGA with high quality
+  python ble_video_stream_test.py --quality 30
 
   # Stream and save frames
   python ble_video_stream_test.py --output ./my_frames
@@ -390,8 +387,6 @@ Examples:
                         help='Resolution index 0-7 (default: 2 for VGA)')
     parser.add_argument('--quality', type=int, default=50,
                         help='JPEG quality 10-63, lower=better (default: 50)')
-    parser.add_argument('--fps', type=int, default=5,
-                        help='Target FPS 1-10 (default: 5)')
     parser.add_argument('--chunk-delay', type=int, default=50,
                         help='Chunk delay in ms 0-255 (default: 50)')
     parser.add_argument('--device-name', type=str, default="CyberGlass",
@@ -406,10 +401,6 @@ Examples:
     # Validate arguments
     if args.quality < 10 or args.quality > 63:
         print("Error: Quality must be between 10 and 63")
-        sys.exit(1)
-
-    if args.fps < 1 or args.fps > 10:
-        print("Error: FPS must be between 1 and 10")
         sys.exit(1)
 
     if args.chunk_delay < 0 or args.chunk_delay > 255:
@@ -446,7 +437,6 @@ Examples:
                 address=address,
                 resolution=args.resolution,
                 quality=args.quality,
-                fps=args.fps,
                 chunk_delay=args.chunk_delay,
                 output_dir=output_dir,
                 display=display
