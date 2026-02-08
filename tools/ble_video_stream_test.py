@@ -61,7 +61,8 @@ RESOLUTION_NAMES = [
 class VideoStreamReceiver:
     """Handles BLE video stream reception and frame display/saving"""
 
-    def __init__(self, output_dir=None, display=True):
+    def __init__(self, client, output_dir=None, display=True):
+        self.client = client
         self.output_dir = Path(output_dir) if output_dir else None
         if self.output_dir:
             self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -78,13 +79,16 @@ class VideoStreamReceiver:
 
         self.start_time = None
         self.last_frame_time = None
+        
+        self.last_chunk_time = None
+        self.frame_ack_sent = False
 
         # Create display window if enabled
         if self.display:
             cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
             cv2.resizeWindow(self.window_name, 800, 600)
 
-    def info_notification_handler(self, sender, data):
+    async def info_notification_handler(self, sender, data):
         """Handle Image Info characteristic notifications"""
         status = data[0]
 
@@ -101,18 +105,16 @@ class VideoStreamReceiver:
             self.start_time = datetime.now()
 
         elif status == 6:
-            # New video frame ready
+            # New video frame info
             frame_count = int.from_bytes(data[1:5], 'little')
             total_chunks = int.from_bytes(data[5:7], 'little')
 
-            # Save previous frame if we have all chunks
-            if self.current_frame_chunks and len(self.current_frame_chunks) == self.current_total_chunks:
-                self._save_frame()
-
-            # Start new frame
+            # Start new frame tracking
             self.current_frame_number = frame_count
             self.current_total_chunks = total_chunks
             self.current_frame_chunks = {}
+            self.frame_ack_sent = False
+            self.last_chunk_time = datetime.now()
 
             current_time = datetime.now()
             if self.last_frame_time:
@@ -129,11 +131,7 @@ class VideoStreamReceiver:
             print("\n\n✓ Video stream stopped")
             self.stream_active = False
 
-            # Save last frame if complete
-            if self.current_frame_chunks and len(self.current_frame_chunks) == self.current_total_chunks:
-                self._save_frame()
-
-            # Print statistics
+            # Statistics
             if self.start_time:
                 duration = (datetime.now() - self.start_time).total_seconds()
                 avg_fps = self.frames_received / duration if duration > 0 else 0
@@ -141,13 +139,13 @@ class VideoStreamReceiver:
                 print(f"  Duration: {duration:.1f}s")
                 print(f"  Frames received: {self.frames_received}")
                 print(f"  Average FPS: {avg_fps:.2f}")
-                if self.output_dir:
-                    print(f"  Output directory: {self.output_dir}")
 
-    def data_notification_handler(self, sender, data):
+    async def data_notification_handler(self, sender, data):
         """Handle Image Data characteristic notifications"""
         if not self.stream_active or len(data) < 2:
             return
+            
+        self.last_chunk_time = datetime.now()
 
         # Parse chunk
         chunk_index = int.from_bytes(data[0:2], 'little')
@@ -155,20 +153,76 @@ class VideoStreamReceiver:
 
         # Store chunk
         self.current_frame_chunks[chunk_index] = chunk_data
+        
+        # Check for completion
+        if not self.frame_ack_sent and len(self.current_frame_chunks) == self.current_total_chunks:
+            # Frame Complete!
+            self.frame_ack_sent = True
+            await self._send_ack()
+            self._save_frame()
+
+    async def _send_ack(self):
+        """Send Frame ACK (0x02)"""
+        try:
+            await self.client.write_gatt_char(IMAGE_CONTROL_UUID, bytes([2]), response=False)
+            # print(".", end="", flush=True) # Debug ACK
+        except Exception as e:
+            print(f"Failed to send ACK: {e}")
+
+    async def _send_nack(self, missing_chunks):
+        """Send NACK for missing chunks (0x01 + count + indices)"""
+        # Limit to 8 chunks per request as per C++ parser limit
+        MAX_CHUNKS_PER_REQ = 8
+        
+        for i in range(0, len(missing_chunks), MAX_CHUNKS_PER_REQ):
+            batch = missing_chunks[i:i + MAX_CHUNKS_PER_REQ]
+            count = len(batch)
+            
+            payload = bytearray([1]) # Command 1: Retransmit
+            payload.extend(count.to_bytes(2, 'little'))
+            
+            for idx in batch:
+                payload.extend(idx.to_bytes(2, 'little'))
+                
+            try:
+                await self.client.write_gatt_char(IMAGE_CONTROL_UUID, payload, response=False)
+                print(f" [NACK {count}]", end="", flush=True)
+            except Exception as e:
+                print(f"Failed to send NACK: {e}")
+            
+            # Small delay between batches
+            if i + MAX_CHUNKS_PER_REQ < len(missing_chunks):
+                await asyncio.sleep(0.02)
+
+    async def check_timeouts(self):
+        """Check for missing chunks and request retransmission"""
+        if not self.stream_active or self.frame_ack_sent or self.current_total_chunks == 0:
+            return
+
+        # Prepare NACK if idle for > 150ms and missing chunks
+        now = datetime.now()
+        if self.last_chunk_time and (now - self.last_chunk_time).total_seconds() > 0.15:
+            missing = []
+            for i in range(self.current_total_chunks):
+                if i not in self.current_frame_chunks:
+                    missing.append(i)
+            
+            if missing:
+                # Update last time to prevent spamming
+                self.last_chunk_time = now
+                await self._send_nack(missing)
 
     def _save_frame(self):
         """Save and/or display current frame"""
-        if not self.current_frame_chunks:
-            return
-
         # Reassemble frame from chunks
         frame_data = bytearray()
         for i in range(self.current_total_chunks):
             if i in self.current_frame_chunks:
                 frame_data.extend(self.current_frame_chunks[i])
             else:
-                print(f"\n  Warning: Missing chunk {i}/{self.current_total_chunks}")
-                return  # Don't process incomplete frame
+                # Should not happen if we ACKed only on full frame
+                print(f"\n  Error: Incomplete frame for saving?")
+                return
 
         # Decode JPEG to image
         try:
@@ -186,21 +240,16 @@ class VideoStreamReceiver:
                 cv2.putText(img, frame_info, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
                             0.7, (0, 255, 0), 2)
 
-                # Add control hint
                 hint = "Press 'q' or ESC to stop"
                 cv2.putText(img, hint, (10, 60), cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (0, 255, 255), 1)
 
-                # Show image
                 cv2.imshow(self.window_name, img)
-
-                # Check for key press
                 key = cv2.waitKey(1) & 0xFF
-                if key == ord('q') or key == 27:  # 'q' or ESC
+                if key == ord('q') or key == 27:
                     print("\n\nUser requested stop (keyboard)")
                     self.should_stop = True
 
-            # Save to file if output directory specified (optional)
             if self.output_dir:
                 filename = self.output_dir / f"frame_{self.current_frame_number:06d}.jpg"
                 cv2.imwrite(str(filename), img)
@@ -219,11 +268,10 @@ class VideoStreamReceiver:
         return 0.0
 
     def check_keyboard(self):
-        """Check for keyboard input (call this regularly even when no frames)"""
+        """Check for keyboard input"""
         if self.display:
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == 27:  # 'q' or ESC
-                print("\n\nUser requested stop (keyboard)")
+            if key == ord('q') or key == 27:
                 self.should_stop = True
                 return True
         return False
@@ -252,11 +300,11 @@ async def find_cyberglass_device(device_name_prefix="CyberGlass"):
 async def stream_video(address, resolution, quality, fps, chunk_delay, output_dir, display):
     """Connect to device and stream video"""
 
-    receiver = VideoStreamReceiver(output_dir, display)
-
     print(f"\nConnecting to {address}...")
     async with BleakClient(address, timeout=20.0) as client:
         print(f"✓ Connected to {address}")
+        
+        receiver = VideoStreamReceiver(client, output_dir, display)
 
         # Subscribe to Image Info notifications
         print("Subscribing to Image Info notifications...")
@@ -289,7 +337,8 @@ async def stream_video(address, resolution, quality, fps, chunk_delay, output_di
             while not receiver.should_stop:
                 # Check for keyboard input even if no frames are being received
                 receiver.check_keyboard()
-                await asyncio.sleep(0.1)
+                await receiver.check_timeouts()
+                await asyncio.sleep(0.01)
         except KeyboardInterrupt:
             print("\n\nUser requested stop (Ctrl+C)")
 

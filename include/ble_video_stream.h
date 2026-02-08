@@ -103,6 +103,11 @@ private:
     uint8_t chunkDelayMs;
   } pendingParams;
 
+  // Frame-level Flow Control
+  volatile bool waitingForFrameAck;
+  volatile bool frameAckReceived;
+
+
   void performStartVideoStream();
   void performStopVideoStream();
 

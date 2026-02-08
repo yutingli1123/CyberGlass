@@ -4,7 +4,6 @@
 #include "esp_system.h"
 
 // BLE Server Callbacks for handling connections/disconnections
-// BLE Server Callbacks for handling connections/disconnections
 class CyberGlassBLEServerCallbacks final : public BLEServerCallbacks {
   BLEVideoStream *stream;
 
@@ -88,6 +87,11 @@ public:
           } else {
             Serial.println("BLE: WARNING - No chunks parsed from retransmit request!");
           }
+        } else if (command == 2) {
+          // Frame ACK: [2]
+          // Client confirms full frame received
+          Serial.println("BLE: Frame ACK received");
+          stream->frameAckReceived = true;
         } else if (command == 3 && value.length() >= 4) {
           // Start video stream: [3, resolution_index, quality, fps, chunk_delay_ms (optional)]
           const uint8_t resolutionIndex = static_cast<uint8_t>(value[1]);
@@ -113,7 +117,7 @@ BLEVideoStream::BLEVideoStream() :
     videoBuffer(nullptr), videoSize(0), totalChunks(0), currentChunk(0), videoTransferActive(false),
     hasPendingChunkRequests(false), pendingChunkCount(0), videoStreamActive(false), videoResolutionIndex(2),
     videoQuality(50), videoTargetFps(5), frameCount(0), streamStartTime(0), frameInterval(200), startRequested(false),
-    stopRequested(false) {
+    stopRequested(false), waitingForFrameAck(false), frameAckReceived(false) {
   for (int i = 0; i < BLE_VIDEO_DATA_CHANNELS; i++) {
     pCharVideoData[i] = nullptr;
   }
@@ -279,11 +283,14 @@ void BLEVideoStream::cancelVideoTransfer() {
   if (videoBuffer) {
     free(videoBuffer);
     videoBuffer = nullptr;
+    pendingChunkCount = 0;
+    hasPendingChunkRequests = false;
   }
   videoSize = 0;
   totalChunks = 0;
   currentChunk = 0;
   videoTransferActive = false;
+  waitingForFrameAck = false; // Reset ACK wait state
 
   if (pCharVideoInfo) {
     uint8_t videoInfo[7] = {0}; // Status: 0 = idle
@@ -346,8 +353,7 @@ void BLEVideoStream::performStartVideoStream() {
   Serial.println("=== Performing Start Video Stream ===");
 
   cancelVideoTransfer();
-  // cancelVideoTransfer(); // calling once is enough
-  // stopVideoStream(); // Don't call stopVideoStream here as it sets valid flag. Call internal stop logic if needed.
+
   if (videoStreamActive) {
     performStopVideoStream(); // Ensure we are stopped
   }
@@ -374,6 +380,10 @@ void BLEVideoStream::performStartVideoStream() {
   frameInterval = 1000 / targetFps;
   frameCount = 0;
   streamStartTime = millis();
+
+  // Reset Flow Control State
+  waitingForFrameAck = false;
+  frameAckReceived = false;
 
   const framesize_t resolutions[] = {FRAMESIZE_QQVGA, FRAMESIZE_QVGA, FRAMESIZE_VGA,  FRAMESIZE_SVGA,
                                      FRAMESIZE_XGA,   FRAMESIZE_HD,   FRAMESIZE_SXGA, FRAMESIZE_UXGA};
@@ -472,8 +482,42 @@ void BLEVideoStream::processVideoStream() {
     return;
   }
 
+  // Handle pending chunk retransmissions (Priority over new frames)
+  if (hasPendingChunkRequests) {
+    hasPendingChunkRequests = false; // Reset flag
+
+    if (videoBuffer && pendingChunkCount > 0) {
+      Serial.printf("BLE: Retransmitting %d chunks...\n", pendingChunkCount);
+      for (int i = 0; i < pendingChunkCount; i++) {
+        // Send single chunk
+        sendVideoChunk(pendingChunkIndexes[i], 1);
+      }
+    }
+    pendingChunkCount = 0;
+
+    // If we were waiting for ACK, receiving a NACK means we stay in waiting state
+    if (waitingForFrameAck) {
+      // logic to stay waiting is implicit
+    }
+  }
+
   if (videoTransferActive) {
     return;
+  }
+
+  // --- FRAME-LEVEL FLOW CONTROL ---
+  if (waitingForFrameAck) {
+    // Check for ACK
+    if (frameAckReceived) {
+      Serial.println("BLE: Frame confirmed (ACK), proceeding to next frame");
+      waitingForFrameAck = false;
+      frameAckReceived = false;
+      // Proceed effectively immediately to capture next frame
+    }
+    // Still waiting...
+    else {
+      return; // BLOCK new frame capture indefinitely until ACK or Stop
+    }
   }
 
   static unsigned long lastFrameTime = 0;
@@ -486,6 +530,10 @@ void BLEVideoStream::processVideoStream() {
   if (videoBuffer) {
     free(videoBuffer);
     videoBuffer = nullptr;
+    // CRITICAL: Clear any pending retransmits for the old frame
+    // otherwise we might send chunks of the NEW frame to satisfy a request for the OLD frame
+    pendingChunkCount = 0;
+    hasPendingChunkRequests = false;
   }
 
   camera_fb_t *fb = esp_camera_fb_get();
@@ -516,7 +564,13 @@ void BLEVideoStream::processVideoStream() {
   frameCount++;
   videoTransferActive = true;
 
+  // Enter Waiting State immediately for the new frame
+  // Note: We only effectively wait AFTER sending is done, but we init the state here
+  waitingForFrameAck = false;
+  frameAckReceived = false;
+
   if (pCharVideoInfo) {
+    // ... send info ...
     uint8_t frameInfo[7];
     frameInfo[0] = 6;
     frameInfo[1] = (frameCount & 0xFF);
@@ -534,6 +588,10 @@ void BLEVideoStream::processVideoStream() {
   }
 
   videoTransferActive = false;
+
+  // Transfer complete, now start waiting for ACK
+  waitingForFrameAck = true;
+
 
   if (frameCount % 10 == 0) {
     unsigned long elapsed = millis() - streamStartTime;
