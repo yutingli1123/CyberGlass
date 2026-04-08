@@ -230,6 +230,9 @@ class VideoStreamReceiver:
                 print(f"\n  Warning: Failed to decode frame {self.current_frame_number}")
                 return
 
+            # Rotate 90 degrees counterclockwise
+            img = cv2.rotate(img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
             # Display frame
             if self.display:
                 # Add frame info overlay
