@@ -217,7 +217,7 @@ bool BLEVideoStream::initBLE() {
   BLEDevice::startAdvertising();
 
   Serial.println("BLE advertising started");
-  Serial.println("BLE Video Stream: 3 services started (Control + Data1 + Data2 = 8 channels)!");
+  Serial.println("BLE Video Stream: 3 services started (Control + Info + Data1 + Data2 = 10 channels)");
   Serial.println("======================================");
 
   return true;
